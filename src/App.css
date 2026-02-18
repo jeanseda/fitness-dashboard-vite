@@ -107,7 +107,7 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 18px;
   display: none;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 6px;
   z-index: 50;
   backdrop-filter: blur(16px) saturate(140%);

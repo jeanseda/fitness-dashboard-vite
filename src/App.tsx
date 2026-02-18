@@ -11,6 +11,8 @@ import {
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -24,8 +26,18 @@ type BodyComp = { date: string; weight: number; bodyFat: number; muscleMass: num
 type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number };
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
 
+type PortfolioPayload = {
+  updatedAt: string;
+  totalValue: number;
+  dailyPnl: number;
+  dailyPnlPct: number;
+  allocation: { name: string; value: number }[];
+  performance: { date: string; value: number; label: string }[];
+  topPositions: { symbol: string; value: number; changePct: number; assetClass: string }[];
+};
+
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 16 };
-const TABS = ["Nutrition", "Body Comp", "Training"] as const;
+const TABS = ["Nutrition", "Body Comp", "Training", "Portfolio"] as const;
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
 const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
 const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "default"> = {
@@ -58,6 +70,7 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
 export default function App() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Nutrition");
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -66,9 +79,14 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/dashboard", { cache: "no-store" });
+      const [res, portfolioRes] = await Promise.all([
+        fetch("/api/dashboard", { cache: "no-store" }),
+        fetch("/api/portfolio", { cache: "no-store" }),
+      ]);
       const json = (await res.json()) as DashboardPayload & { error?: string };
+      const portfolioJson = (await portfolioRes.json()) as PortfolioPayload & { error?: string };
       if (!res.ok) throw new Error(json.error || "Failed to fetch dashboard data");
+      if (portfolioRes.ok) setPortfolio(portfolioJson);
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
@@ -168,13 +186,21 @@ export default function App() {
         { label: "Progressing", val: exercises.filter((e) => e.latest.weight >= e.first.weight).length, sub: "Exercises moving up" },
       ];
     }
+    if (tab === "Portfolio") {
+      return [
+        { label: "Portfolio Value", val: portfolio?.totalValue || 0, sub: "Stocks + crypto", suffix: "" },
+        { label: "Daily P&L", val: portfolio?.dailyPnl || 0, sub: `${portfolio?.dailyPnlPct ?? 0}% today` },
+        { label: "Positions", val: portfolio?.topPositions?.length || 0, sub: "Tracked symbols" },
+        { label: "Data", val: portfolio ? 1 : 0, sub: portfolio ? `Updated ${new Date(portfolio.updatedAt).toLocaleTimeString()}` : "Waiting for imports" },
+      ];
+    }
     return [
       { label: "Today Calories", val: todayTotals.cal, sub: `Target ${TARGETS.calories}` },
       { label: "Today Protein", val: todayTotals.pro, suffix: "g", sub: `Target ${TARGETS.protein}g` },
       { label: "Cal Goal Hits", val: calHits, sub: `${dailyData.length} tracked days` },
       { label: "Protein Hits", val: proteinHits, sub: `${dailyData.length} tracked days` },
     ];
-  }, [tab, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
+  }, [tab, portfolio, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
 
   return (
     <div className="page">
@@ -199,6 +225,7 @@ export default function App() {
           <Tab key="Nutrition" title="🍽️ Nutrition" />
           <Tab key="Body Comp" title="📊 Body Comp" />
           <Tab key="Training" title="🏋️ Training" />
+          <Tab key="Portfolio" title="📈 Portfolio" />
         </Tabs>
       </div>
 
@@ -344,10 +371,60 @@ export default function App() {
         </div>
       )}
 
+      {!loading && tab === "Portfolio" && (
+        <div className="grid">
+          <Card className="panel">
+            <CardBody>
+              <h3>Allocation</h3>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={portfolio?.allocation || []} dataKey="value" nameKey="name" outerRadius={90} label />
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+
+          <Card className="panel">
+            <CardBody>
+              <h3>Portfolio performance</h3>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={portfolio?.performance || []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
+                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="value" stroke="#60a5fa" strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+
+          <Card className="panel">
+            <CardBody>
+              <h3>Top positions</h3>
+              <div className="list">
+                {(portfolio?.topPositions || []).map((p) => (
+                  <div key={p.symbol} className="item">
+                    <div>
+                      <strong>{p.symbol}</strong>
+                      <p className="muted">{p.assetClass}</p>
+                    </div>
+                    <div className="right">${p.value.toFixed(2)} · {p.changePct >= 0 ? "+" : ""}{p.changePct}%</div>
+                  </div>
+                ))}
+                {!portfolio?.topPositions?.length && <p className="muted">No portfolio imports yet. Add CSV/PDF files and re-import.</p>}
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
       <div className="mobile-nav">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""}>
-            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : "🏋️"}
+            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : "📈"}
             <span>{t}</span>
           </button>
         ))}

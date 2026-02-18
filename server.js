@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import { Client } from "@notionhq/client";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 dotenv.config();
@@ -95,6 +96,47 @@ app.get("/api/dashboard", async (_req, res) => {
       error: error instanceof Error ? error.message : "Unknown server error"
     });
   }
+});
+
+app.get("/api/portfolio", (_req, res) => {
+  const fallback = {
+    updatedAt: new Date().toISOString(),
+    totalValue: 9575.04,
+    dailyPnl: 25.22,
+    dailyPnlPct: 0.26,
+    allocation: [
+      { name: "Stocks", value: 78 },
+      { name: "Crypto", value: 17 },
+      { name: "Cash", value: 5 },
+    ],
+    performance: [
+      { date: "2026-02-11", label: "Feb 11", value: 9480 },
+      { date: "2026-02-12", label: "Feb 12", value: 9512 },
+      { date: "2026-02-13", label: "Feb 13", value: 9468 },
+      { date: "2026-02-14", label: "Feb 14", value: 9525 },
+      { date: "2026-02-15", label: "Feb 15", value: 9541 },
+      { date: "2026-02-16", label: "Feb 16", value: 9549 },
+      { date: "2026-02-17", label: "Feb 17", value: 9575 },
+    ],
+    topPositions: [
+      { symbol: "TSLA", value: 6504, changePct: -1.24, assetClass: "Stock" },
+      { symbol: "PLTR", value: 5298, changePct: 1.51, assetClass: "Stock" },
+      { symbol: "BTC", value: 2166, changePct: -1.17, assetClass: "Crypto" },
+      { symbol: "DOGE", value: 721, changePct: 0.88, assetClass: "Crypto" },
+    ],
+  };
+
+  const filePath = process.env.PORTFOLIO_JSON_PATH || path.join(__dirname, "data", "portfolio.json");
+  if (fs.existsSync(filePath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      return res.json(parsed);
+    } catch {
+      return res.json(fallback);
+    }
+  }
+
+  return res.json(fallback);
 });
 
 if (process.env.NODE_ENV === "production") {
