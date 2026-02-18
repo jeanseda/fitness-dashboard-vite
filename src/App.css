@@ -7,7 +7,7 @@
     radial-gradient(760px 460px at 92% -8%, rgba(14, 165, 233, 0.14), transparent 56%),
     linear-gradient(180deg, #0a1020 0%, #0a1224 48%, #090f1e 100%);
   color: #e6ecff;
-  padding: 22px 18px 120px;
+  padding: 22px 18px 160px;
   max-width: 920px;
   margin: 0 auto;
 }
@@ -44,6 +44,7 @@
   -webkit-backdrop-filter: blur(20px) saturate(135%);
   box-shadow: 0 10px 22px rgba(2, 8, 24, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   border-radius: 18px !important;
+  overflow: hidden;
 }
 .kpis p { margin: 0; color: #9ca8d8; font-size: 0.82rem; }
 .kpis h3 { margin: 6px 0 2px; font-size: 1.75rem; line-height: 1; }
@@ -59,6 +60,7 @@
   -webkit-backdrop-filter: blur(22px) saturate(140%);
   box-shadow: 0 14px 30px rgba(7, 12, 30, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   border-radius: 20px !important;
+  overflow: hidden;
 }
 .panel h3 { margin: 0 0 12px; font-size: 1.05rem; letter-spacing: -0.01em; }
 .coach-panel { margin-bottom: 12px; }
@@ -76,6 +78,17 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(14px) saturate(135%);
   -webkit-backdrop-filter: blur(14px) saturate(135%);
+  overflow: hidden;
+}
+
+.item strong {
+  display: block;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.item .right {
+  flex-shrink: 0;
 }
 .left { display: flex; gap: 8px; align-items: center; }
 .left strong { display: block; margin-bottom: 4px; }
@@ -126,4 +139,6 @@
   .mobile-nav { display: grid; }
   .hero h1 { font-size: 1.95rem; }
   .hero button { border-radius: 14px !important; min-height: 44px; }
+  .page { padding-bottom: 240px; }
+  .panel { margin-bottom: 2px; }
 }
