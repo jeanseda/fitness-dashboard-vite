@@ -238,21 +238,30 @@ export default function App() {
 
           <Card className="panel">
             <CardBody>
-              <h3>Calories vs Protein trend</h3>
-              <ResponsiveContainer width="100%" height={260}>
+              <h3>Calories trend</h3>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
                   <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis yAxisId="left" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fill: "#96a0c8", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
                   <Tooltip />
-                  <ReferenceLine yAxisId="left" y={TARGETS.caloriesMin} stroke="#22c55e" strokeDasharray="5 5" />
-                  <ReferenceLine yAxisId="right" y={TARGETS.proteinMin} stroke="#f59e0b" strokeDasharray="5 5" />
-                  <Bar yAxisId="left" dataKey="calories" radius={[6, 6, 0, 0]}>
+                  <ReferenceLine y={TARGETS.caloriesMin} stroke="#22c55e" strokeDasharray="5 5" />
+                  <Bar dataKey="calories" radius={[6, 6, 0, 0]}>
                     {dailyData.map((d, i) => <Cell key={i} fill={d.calories >= TARGETS.caloriesMin ? "#22c55e" : "#6366f1"} />)}
                   </Bar>
-                  <Line yAxisId="right" type="monotone" dataKey="protein" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} />
                 </BarChart>
+              </ResponsiveContainer>
+
+              <h3 style={{ marginTop: 14 }}>Protein trend</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={dailyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
+                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
+                  <Tooltip />
+                  <ReferenceLine y={TARGETS.proteinMin} stroke="#f59e0b" strokeDasharray="5 5" />
+                  <Line type="monotone" dataKey="protein" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
               </ResponsiveContainer>
             </CardBody>
           </Card>
