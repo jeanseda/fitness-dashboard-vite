@@ -96,7 +96,15 @@ async function fetchLatestWithingsMeasure(accessToken) {
   if (!groups.length) return null;
 
   groups.sort((a, b) => (b.date || 0) - (a.date || 0));
-  return groups[0];
+
+  // Prefer groups that contain body-composition measures (weight/fat/muscle)
+  const preferred = groups.find((g) => {
+    const ms = g.measures || [];
+    const types = new Set(ms.map((m) => m.type));
+    return types.has(1) || types.has(8) || types.has(76) || types.has(6);
+  });
+
+  return preferred || groups[0];
 }
 
 function mapGroupToBodyComp(group) {
@@ -134,11 +142,6 @@ async function upsertNotionBodyComp(entry) {
 
   const properties = {
     Date: { date: { start: entry.date } },
-    "Weight (lbs)": { number: entry.weight ?? undefined },
-    "Body Fat %": { number: entry.bodyFat != null ? Number((entry.bodyFat / 100).toFixed(4)) : undefined },
-    "Muscle Mass (lbs)": { number: entry.muscleMass ?? undefined },
-    "Lean Mass (lbs)": { number: entry.leanMass ?? undefined },
-    "BMR (kcal)": { number: entry.bmr ?? undefined },
     Notes: {
       rich_text: [
         {
@@ -148,6 +151,12 @@ async function upsertNotionBodyComp(entry) {
       ],
     },
   };
+
+  if (entry.weight != null) properties["Weight (lbs)"] = { number: entry.weight };
+  if (entry.bodyFat != null) properties["Body Fat %"] = { number: Number((entry.bodyFat / 100).toFixed(4)) };
+  if (entry.muscleMass != null) properties["Muscle Mass (lbs)"] = { number: entry.muscleMass };
+  if (entry.leanMass != null) properties["Lean Mass (lbs)"] = { number: entry.leanMass };
+  if (entry.bmr != null) properties["BMR (kcal)"] = { number: entry.bmr };
 
   if (existing.results?.length) {
     await notion.pages.update({
