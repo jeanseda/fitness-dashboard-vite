@@ -187,12 +187,11 @@ html, body, #root {
   min-width: 0;
 }
 
-.recharts-responsive-container,
-.recharts-wrapper,
-.recharts-surface {
+.recharts-responsive-container {
+  width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
-  overflow: hidden;
+  min-height: 220px;
 }
 
 .mobile-nav {
