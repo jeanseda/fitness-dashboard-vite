@@ -23,7 +23,7 @@ import "./App.css";
 
 type Meal = { food: string; date: string; meal: string; calories: number; protein: number; source?: string };
 type BodyComp = { date: string; weight: number; bodyFat: number; muscleMass: number };
-type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number };
+type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number; workoutType?: string };
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
 
 type PortfolioPayload = {
@@ -46,7 +46,7 @@ type LooksPayload = {
   latestGoals: { title: string; status?: string }[];
 };
 
-const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 16 };
+const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 20 };
 const TABS = ["Nutrition", "Body Comp", "Training", "Portfolio", "Looksmaxx"] as const;
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
 const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
@@ -173,6 +173,10 @@ export default function App() {
 
   const workoutDays = useMemo(() => [...new Set(training.map((t) => t.date).filter(Boolean))], [training]);
   const lastWorkout = workoutDays.sort().at(-1);
+  const latestExerciseEntries = useMemo(
+    () => [...training].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6),
+    [training],
+  );
 
   const coachReply = useMemo(() => {
     const q = question.toLowerCase();
@@ -350,6 +354,24 @@ export default function App() {
                   <Area type="monotone" dataKey="bodyFat" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.25} />
                 </AreaChart>
               </ResponsiveContainer>
+            </CardBody>
+          </Card>
+
+          <Card className="panel">
+            <CardBody>
+              <h3>Latest exercises (weight × reps)</h3>
+              <div className="list">
+                {latestExerciseEntries.map((e, i) => (
+                  <div key={`${e.exercise}-${e.date}-${i}`} className="item">
+                    <div>
+                      <strong>{e.exercise}</strong>
+                      <p className="muted">{e.date || "No date"} · {e.workoutType || "Workout"}</p>
+                    </div>
+                    <div className="right">{e.weight} lbs × {String(e.reps)}</div>
+                  </div>
+                ))}
+                {!latestExerciseEntries.length && <p className="muted">No exercise entries yet.</p>}
+              </div>
             </CardBody>
           </Card>
         </div>

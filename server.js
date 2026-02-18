@@ -71,27 +71,31 @@ app.get("/api/dashboard", async (_req, res) => {
 
     const bodyComp = bodyRes.results.map((r) => {
       const p = r.properties || {};
+      const rawBodyFat = propNumber(firstExisting(p, ["Body Fat", "Body Fat %"]));
+      const bodyFat = rawBodyFat > 0 && rawBodyFat <= 1 ? Number((rawBodyFat * 100).toFixed(1)) : rawBodyFat;
       return {
         date: propDate(firstExisting(p, ["Date", "Log Date"])),
         weight: propNumber(firstExisting(p, ["Weight", "Weight (lbs)"])),
-        bodyFat: propNumber(firstExisting(p, ["Body Fat", "Body Fat %"])),
-        muscleMass: propNumber(firstExisting(p, ["Muscle Mass", "Muscle (lbs)"])),
-        leanMass: propNumber(firstExisting(p, ["Lean Mass", "Lean (lbs)"])) || null,
+        bodyFat,
+        muscleMass: propNumber(firstExisting(p, ["Muscle Mass (lbs)", "Muscle Mass", "Muscle (lbs)"])),
+        leanMass: propNumber(firstExisting(p, ["Lean Mass (lbs)", "Lean Mass", "Lean (lbs)"])) || null,
         bmi: propNumber(firstExisting(p, ["BMI"])) || null,
-        bmr: propNumber(firstExisting(p, ["BMR"])) || null,
+        bmr: propNumber(firstExisting(p, ["BMR", "BMR (kcal)"])) || null,
         notes: propRichText(firstExisting(p, ["Notes"])) || null,
       };
     });
 
     const training = trainRes.results.map((r) => {
       const p = r.properties || {};
+      const repsText = propRichText(firstExisting(p, ["Actual Reps", "Target Reps", "Reps"]));
+      const repsNum = propNumber(firstExisting(p, ["Actual Reps", "Reps"]));
       return {
-        exercise: propTitle(firstExisting(p, ["Exercise", "Name", "Title"])),
+        exercise: propSelect(firstExisting(p, ["Exercise"])) || propTitle(firstExisting(p, ["Name", "Title"])),
         date: propDate(firstExisting(p, ["Date", "Log Date"])),
-        weight: propNumber(firstExisting(p, ["Weight", "Weight (lbs)"])),
+        weight: propNumber(firstExisting(p, ["Weight (lbs)", "Weight"])),
         sets: propNumber(firstExisting(p, ["Sets"])),
-        reps: propRichText(firstExisting(p, ["Reps"])) || propNumber(firstExisting(p, ["Reps"])),
-        workoutType: propSelect(firstExisting(p, ["Workout Type", "Type"])),
+        reps: repsText || repsNum || "Unknown",
+        workoutType: propSelect(firstExisting(p, ["Workout", "Workout Type", "Type"])),
         notes: propRichText(firstExisting(p, ["Notes"])) || null,
       };
     });
