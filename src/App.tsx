@@ -36,8 +36,18 @@ type PortfolioPayload = {
   topPositions: { symbol: string; value: number; changePct: number; assetClass: string }[];
 };
 
+type LooksPayload = {
+  updatedAt: string;
+  dailyCount: number;
+  fitnessCount: number;
+  productsCount: number;
+  goalsCount: number;
+  latestDaily: { title: string; date?: string }[];
+  latestGoals: { title: string; status?: string }[];
+};
+
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 16 };
-const TABS = ["Nutrition", "Body Comp", "Training", "Portfolio"] as const;
+const TABS = ["Nutrition", "Body Comp", "Training", "Portfolio", "Looksmaxx"] as const;
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
 const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
 const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "default"> = {
@@ -71,6 +81,7 @@ export default function App() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Nutrition");
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null);
+  const [looks, setLooks] = useState<LooksPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -79,14 +90,17 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [res, portfolioRes] = await Promise.all([
+      const [res, portfolioRes, looksRes] = await Promise.all([
         fetch("/api/dashboard", { cache: "no-store" }),
         fetch("/api/portfolio", { cache: "no-store" }),
+        fetch("/api/looksmaxx", { cache: "no-store" }),
       ]);
       const json = (await res.json()) as DashboardPayload & { error?: string };
       const portfolioJson = (await portfolioRes.json()) as PortfolioPayload & { error?: string };
+      const looksJson = (await looksRes.json()) as LooksPayload & { error?: string };
       if (!res.ok) throw new Error(json.error || "Failed to fetch dashboard data");
       if (portfolioRes.ok) setPortfolio(portfolioJson);
+      if (looksRes.ok) setLooks(looksJson);
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
@@ -194,13 +208,21 @@ export default function App() {
         { label: "Data", val: portfolio ? 1 : 0, sub: portfolio ? `Updated ${new Date(portfolio.updatedAt).toLocaleTimeString()}` : "Waiting for imports" },
       ];
     }
+    if (tab === "Looksmaxx") {
+      return [
+        { label: "Daily Logs", val: looks?.dailyCount || 0, sub: "Looksmaxx HQ" },
+        { label: "Fitness Logs", val: looks?.fitnessCount || 0, sub: "Workout + body" },
+        { label: "Products", val: looks?.productsCount || 0, sub: "Stack tracked" },
+        { label: "Goals", val: looks?.goalsCount || 0, sub: "Milestones" },
+      ];
+    }
     return [
       { label: "Today Calories", val: todayTotals.cal, sub: `Target ${TARGETS.calories}` },
       { label: "Today Protein", val: todayTotals.pro, suffix: "g", sub: `Target ${TARGETS.protein}g` },
       { label: "Cal Goal Hits", val: calHits, sub: `${dailyData.length} tracked days` },
       { label: "Protein Hits", val: proteinHits, sub: `${dailyData.length} tracked days` },
     ];
-  }, [tab, portfolio, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
+  }, [tab, portfolio, looks, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
 
   return (
     <div className="page">
@@ -226,6 +248,7 @@ export default function App() {
           <Tab key="Body Comp" title="📊 Body Comp" />
           <Tab key="Training" title="🏋️ Training" />
           <Tab key="Portfolio" title="📈 Portfolio" />
+          <Tab key="Looksmaxx" title="✨ Looksmaxx" />
         </Tabs>
       </div>
 
@@ -421,10 +444,48 @@ export default function App() {
         </div>
       )}
 
+      {!loading && tab === "Looksmaxx" && (
+        <div className="grid">
+          <Card className="panel">
+            <CardBody>
+              <h3>Latest Daily Logs</h3>
+              <div className="list">
+                {(looks?.latestDaily || []).map((d, idx) => (
+                  <div key={`${d.title}-${idx}`} className="item">
+                    <div>
+                      <strong>{d.title || "Untitled"}</strong>
+                      <p className="muted">{d.date || "No date"}</p>
+                    </div>
+                  </div>
+                ))}
+                {!looks?.latestDaily?.length && <p className="muted">No daily entries found yet.</p>}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card className="panel">
+            <CardBody>
+              <h3>Goals & Milestones</h3>
+              <div className="list">
+                {(looks?.latestGoals || []).map((g, idx) => (
+                  <div key={`${g.title}-${idx}`} className="item">
+                    <div>
+                      <strong>{g.title || "Untitled goal"}</strong>
+                      <p className="muted">{g.status || "No status"}</p>
+                    </div>
+                  </div>
+                ))}
+                {!looks?.latestGoals?.length && <p className="muted">No goals found yet.</p>}
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
       <div className="mobile-nav">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""}>
-            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : "📈"}
+            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : t === "Portfolio" ? "📈" : "✨"}
             <span>{t}</span>
           </button>
         ))}

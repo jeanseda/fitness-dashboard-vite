@@ -20,6 +20,13 @@ const dbMeals = normalizeId(process.env.NOTION_DB_MEALS);
 const dbBodyComp = normalizeId(process.env.NOTION_DB_BODYCOMP);
 const dbTraining = normalizeId(process.env.NOTION_DB_TRAINING);
 
+const looksDbs = {
+  daily: "fc92cf89-d93f-48e8-bb23-217e6d001716",
+  fitness: "c1f09f44-3490-418d-9da3-8177895062ec",
+  products: "de7c9cbc-0706-4400-8402-c9c873904e70",
+  goals: "0d5d9ab6-8907-40a5-becd-965bbf6bd13a",
+};
+
 function textArrayToString(value) {
   if (!Array.isArray(value)) return "";
   return value.map((v) => v.plain_text || "").join("").trim();
@@ -137,6 +144,49 @@ app.get("/api/portfolio", (_req, res) => {
   }
 
   return res.json(fallback);
+});
+
+app.get("/api/looksmaxx", async (_req, res) => {
+  const fallback = {
+    updatedAt: new Date().toISOString(),
+    dailyCount: 0,
+    fitnessCount: 0,
+    productsCount: 0,
+    goalsCount: 0,
+    latestDaily: [],
+    latestGoals: [],
+  };
+
+  if (!notionToken) return res.json(fallback);
+
+  try {
+    const notion = new Client({ auth: notionToken });
+    const [dailyRes, fitnessRes, productsRes, goalsRes] = await Promise.all([
+      notion.dataSources.query({ data_source_id: looksDbs.daily, page_size: 10 }),
+      notion.dataSources.query({ data_source_id: looksDbs.fitness, page_size: 10 }),
+      notion.dataSources.query({ data_source_id: looksDbs.products, page_size: 10 }),
+      notion.dataSources.query({ data_source_id: looksDbs.goals, page_size: 10 }),
+    ]);
+
+    const mapTitle = (props) => propTitle(firstExisting(props || {}, ["Name", "Title", "Goal", "Entry", "Task"])) || "Untitled";
+    const mapDate = (props) => propDate(firstExisting(props || {}, ["Date", "Created", "When", "Log Date"])) || "";
+    const mapStatus = (props) => {
+      const p = firstExisting(props || {}, ["Status", "State", "Progress"]);
+      return propSelect(p) || propRichText(p) || "";
+    };
+
+    return res.json({
+      updatedAt: new Date().toISOString(),
+      dailyCount: dailyRes.results.length,
+      fitnessCount: fitnessRes.results.length,
+      productsCount: productsRes.results.length,
+      goalsCount: goalsRes.results.length,
+      latestDaily: dailyRes.results.slice(0, 5).map((r) => ({ title: mapTitle(r.properties), date: mapDate(r.properties) })),
+      latestGoals: goalsRes.results.slice(0, 5).map((r) => ({ title: mapTitle(r.properties), status: mapStatus(r.properties) })),
+    });
+  } catch (error) {
+    return res.json({ ...fallback, error: error instanceof Error ? error.message : "looksmaxx_error" });
+  }
 });
 
 if (process.env.NODE_ENV === "production") {
