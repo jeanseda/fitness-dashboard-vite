@@ -9,6 +9,7 @@
     "dev:api": "node server.js",
     "build": "tsc -b && vite build",
     "start": "node server.js",
+    "withings:sync": "node scripts/withings_sync.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
