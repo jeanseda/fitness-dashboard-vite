@@ -111,10 +111,10 @@ function mapGroupToBodyComp(group) {
   const measures = group.measures || [];
 
   const weightKg = getMeasureValue(measures, 1); // weight
-  const fatRatio = getMeasureValue(measures, 8); // fat ratio
-  const muscleKg = getMeasureValue(measures, 76); // muscle mass
-  const leanKg = getMeasureValue(measures, 6); // fat free mass
-  const bmr = getMeasureValue(measures, 11); // basal metabolic rate
+  const fatRatio = getMeasureValue(measures, 6); // fat ratio (%)
+  const muscleKg = getMeasureValue(measures, 76); // muscle mass (kg)
+  const leanKg = getMeasureValue(measures, 5); // fat-free mass (kg)
+  const bmr = getMeasureValue(measures, 226); // basal metabolic rate (kcal)
 
   const date = new Date((group.date || 0) * 1000).toISOString().slice(0, 10);
 
