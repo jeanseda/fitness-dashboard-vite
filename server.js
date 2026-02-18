@@ -14,9 +14,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const notionToken = process.env.NOTION_TOKEN;
-const dbMeals = process.env.NOTION_DB_MEALS;
-const dbBodyComp = process.env.NOTION_DB_BODYCOMP;
-const dbTraining = process.env.NOTION_DB_TRAINING;
+const normalizeId = (v) => (v || "").replace(/[\s"']/g, "").trim();
+const dbMeals = normalizeId(process.env.NOTION_DB_MEALS);
+const dbBodyComp = normalizeId(process.env.NOTION_DB_BODYCOMP);
+const dbTraining = normalizeId(process.env.NOTION_DB_TRAINING);
 
 function textArrayToString(value) {
   if (!Array.isArray(value)) return "";
