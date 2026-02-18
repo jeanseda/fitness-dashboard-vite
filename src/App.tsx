@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Button, Card, CardBody, Chip, Input, Spinner, Tab, Tabs } from "@heroui/react";
+import { Button, Card, CardBody, Chip, Spinner, Tab, Tabs } from "@heroui/react";
 import {
   Area,
   AreaChart,
@@ -84,7 +84,6 @@ export default function App() {
   const [looks, setLooks] = useState<LooksPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [question, setQuestion] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -147,8 +146,6 @@ export default function App() {
   );
 
   const todayTotals = todayMeals.reduce((a, m) => ({ cal: a.cal + (m.calories || 0), pro: a.pro + (m.protein || 0) }), { cal: 0, pro: 0 });
-  const avgCal = dailyData.length ? Math.round(dailyData.reduce((s, d) => s + d.calories, 0) / dailyData.length) : 0;
-  const avgPro = dailyData.length ? Math.round(dailyData.reduce((s, d) => s + d.protein, 0) / dailyData.length) : 0;
   const calHits = dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length;
   const proteinHits = dailyData.filter((d) => d.protein >= TARGETS.proteinMin).length;
 
@@ -178,14 +175,6 @@ export default function App() {
     [training],
   );
 
-  const coachReply = useMemo(() => {
-    const q = question.toLowerCase();
-    if (!q) return `Avg ${avgCal} cal / ${avgPro}g protein. Hit goals: ${calHits}/${dailyData.length || 0} cal days, ${proteinHits}/${dailyData.length || 0} protein days.`;
-    if (q.includes("protein")) return avgPro >= TARGETS.protein ? `Protein is solid (${avgPro}g avg).` : `Protein is low (${avgPro}g avg). Add 20-30g early in day.`;
-    if (q.includes("fat") || q.includes("body")) return latestBody ? `Latest body fat ${latestBody.bodyFat}%. Delta ${bodyFatDelta > 0 ? "+" : ""}${bodyFatDelta}% vs last scan.` : "No body comp trend yet.";
-    if (q.includes("workout") || q.includes("train")) return `Tracked ${workoutDays.length} workout days. Keep +2.5 to +5 lbs progressive overload weekly.`;
-    return `Tomorrow: protein to ${TARGETS.protein}g and calories above ${TARGETS.caloriesMin}.`;
-  }, [question, avgCal, avgPro, calHits, proteinHits, dailyData.length, latestBody, bodyFatDelta, workoutDays.length]);
 
   const topCards = useMemo(() => {
     if (tab === "Body Comp") {
@@ -258,14 +247,6 @@ export default function App() {
 
       {loading && <div className="state"><Spinner size="lg" color="primary" /><span>Loading your latest data…</span></div>}
       {error && <Card className="error"><CardBody>{error}</CardBody></Card>}
-
-      <Card className="panel coach-panel">
-        <CardBody>
-          <h3>🧠 AI Coach</h3>
-          <Input size="sm" placeholder="Ask: how is my protein trend?" value={question} onValueChange={setQuestion} />
-          <p className="muted coach-reply">{coachReply}</p>
-        </CardBody>
-      </Card>
 
       {!loading && tab === "Nutrition" && (
         <div className="grid">
