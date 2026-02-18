@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, CardBody, Chip, Spinner, Tab, Tabs } from "@heroui/react";
+import { motion } from "framer-motion";
+import { Button, Card, CardBody, Chip, Input, Spinner, Tab, Tabs } from "@heroui/react";
 import {
   Area,
   AreaChart,
@@ -24,15 +25,45 @@ type TrainingEntry = { exercise: string; date: string; weight: number; reps: str
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
 
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700 };
+const TABS = ["Nutrition", "Body Comp", "Training"] as const;
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
 const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
-const SRC_CLR: Record<string, string> = { "Ideal Nutrition": "success", Restaurant: "danger", Homemade: "primary", Supplement: "secondary", Other: "default" };
+const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "default"> = {
+  "Ideal Nutrition": "success",
+  Restaurant: "danger",
+  Homemade: "primary",
+  Supplement: "secondary",
+  Other: "default",
+};
+
+function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    const duration = 600;
+    const start = performance.now();
+
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(value * eased));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+
+  return <>{display}{suffix}</>;
+}
 
 export default function App() {
-  const [tab, setTab] = useState("Nutrition");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Nutrition");
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -67,7 +98,14 @@ export default function App() {
     const byDate: Record<string, { date: string; calories: number; protein: number; label: string }> = {};
     meals.forEach((m) => {
       if (!m.date) return;
-      if (!byDate[m.date]) byDate[m.date] = { date: m.date, calories: 0, protein: 0, label: new Date(`${m.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
+      if (!byDate[m.date]) {
+        byDate[m.date] = {
+          date: m.date,
+          calories: 0,
+          protein: 0,
+          label: new Date(`${m.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        };
+      }
       byDate[m.date].calories += m.calories || 0;
       byDate[m.date].protein += m.protein || 0;
     });
@@ -77,6 +115,7 @@ export default function App() {
   const todayTotals = todayMeals.reduce((a, m) => ({ cal: a.cal + (m.calories || 0), pro: a.pro + (m.protein || 0) }), { cal: 0, pro: 0 });
   const avgCal = dailyData.length ? Math.round(dailyData.reduce((s, d) => s + d.calories, 0) / dailyData.length) : 0;
   const avgPro = dailyData.length ? Math.round(dailyData.reduce((s, d) => s + d.protein, 0) / dailyData.length) : 0;
+  const hits = dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length;
 
   const exercises = useMemo(() => {
     const byEx: Record<string, TrainingEntry[]> = {};
@@ -91,6 +130,23 @@ export default function App() {
     });
   }, [training]);
 
+  const coachReply = useMemo(() => {
+    const q = question.toLowerCase();
+    if (!q) {
+      return `You’re averaging ${avgCal} cal and ${avgPro}g protein. ${hits}/${dailyData.length || 0} days hit calorie target.`;
+    }
+    if (q.includes("protein")) {
+      return avgPro >= TARGETS.protein ? `Protein is solid (${avgPro}g avg). Keep that pace.` : `Protein is low (${avgPro}g avg). Aim to add 20-30g in first meal.`;
+    }
+    if (q.includes("calor") || q.includes("bulk")) {
+      return avgCal >= TARGETS.caloriesMin ? `Calories are on target (${avgCal}). Keep consistency.` : `Calories are under target (${avgCal}). Add a 400-500 cal shake daily.`;
+    }
+    if (q.includes("train") || q.includes("workout")) {
+      return `You have ${exercises.length} tracked exercises. Focus on +2.5 to +5 lbs progressive overload weekly.`;
+    }
+    return `Focus for tomorrow: hit ${TARGETS.protein}g protein early and keep calories above ${TARGETS.caloriesMin}.`;
+  }, [question, avgCal, avgPro, hits, dailyData.length, exercises.length]);
+
   return (
     <div className="page">
       <div className="hero">
@@ -104,20 +160,15 @@ export default function App() {
       </div>
 
       <div className="kpis">
-        <Card><CardBody><p>Today Calories</p><h3>{todayTotals.cal}</h3><small>Target {TARGETS.calories}</small></CardBody></Card>
-        <Card><CardBody><p>Today Protein</p><h3>{todayTotals.pro}g</h3><small>Target {TARGETS.protein}g</small></CardBody></Card>
-        <Card><CardBody><p>Avg Calories</p><h3>{avgCal}</h3><small>{dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length}/{dailyData.length} days hit</small></CardBody></Card>
-        <Card><CardBody><p>Avg Protein</p><h3>{avgPro}g</h3><small>Consistency trend</small></CardBody></Card>
+        {[{ label: "Today Calories", val: todayTotals.cal, sub: `Target ${TARGETS.calories}` }, { label: "Today Protein", val: todayTotals.pro, sub: `Target ${TARGETS.protein}g`, suffix: "g" }, { label: "Avg Calories", val: avgCal, sub: `${hits}/${dailyData.length} days hit` }, { label: "Avg Protein", val: avgPro, sub: "Consistency trend", suffix: "g" }].map((k, i) => (
+          <motion.div key={k.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+            <Card><CardBody><p>{k.label}</p><h3><AnimatedNumber value={k.val} suffix={k.suffix} /></h3><small>{k.sub}</small></CardBody></Card>
+          </motion.div>
+        ))}
       </div>
 
-      <div className="tab-wrap">
-        <Tabs
-          selectedKey={tab}
-          onSelectionChange={(key) => setTab(String(key))}
-          aria-label="Dashboard tabs"
-          color="primary"
-          variant="underlined"
-        >
+      <div className="tab-wrap desktop-tabs">
+        <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as (typeof TABS)[number])} aria-label="Dashboard tabs" color="primary" variant="underlined">
           <Tab key="Nutrition" title="🍽️ Nutrition" />
           <Tab key="Body Comp" title="📊 Body Comp" />
           <Tab key="Training" title="🏋️ Training" />
@@ -126,6 +177,14 @@ export default function App() {
 
       {loading && <div className="state"><Spinner size="lg" color="primary" /><span>Loading your latest data…</span></div>}
       {error && <Card className="error"><CardBody>{error}</CardBody></Card>}
+
+      <Card className="panel coach-panel">
+        <CardBody>
+          <h3>🧠 AI Coach</h3>
+          <Input size="sm" placeholder="Ask: How is my protein trend?" value={question} onValueChange={setQuestion} />
+          <p className="muted coach-reply">{coachReply}</p>
+        </CardBody>
+      </Card>
 
       {!loading && tab === "Nutrition" && (
         <div className="grid">
@@ -139,7 +198,7 @@ export default function App() {
                       <span>{MEAL_EMOJI[m.meal] || "🍴"}</span>
                       <div>
                         <strong>{m.food}</strong>
-                        <Chip size="sm" color={SRC_CLR[m.source || "Other"] as "default"}>{m.source || "Other"}</Chip>
+                        <Chip size="sm" color={SRC_CLR[m.source || "Other"]}>{m.source || "Other"}</Chip>
                       </div>
                     </div>
                     <div className="right">{m.calories} cal · {m.protein}g</div>
@@ -227,6 +286,15 @@ export default function App() {
           </Card>
         </div>
       )}
+
+      <div className="mobile-nav">
+        {TABS.map((t) => (
+          <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""}>
+            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : "🏋️"}
+            <span>{t}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
