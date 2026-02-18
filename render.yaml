@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: fitness-dashboard-vite
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 10000
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_DB_MEALS
+        sync: false
+      - key: NOTION_DB_BODYCOMP
+        sync: false
+      - key: NOTION_DB_TRAINING
+        sync: false
