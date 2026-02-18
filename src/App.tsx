@@ -26,14 +26,11 @@ type BodyComp = { date: string; weight: number; bodyFat: number; muscleMass: num
 type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number; workoutType?: string };
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
 
-type PortfolioPayload = {
+type RoadmapPayload = {
   updatedAt: string;
-  totalValue: number;
-  dailyPnl: number;
-  dailyPnlPct: number;
-  allocation: { name: string; value: number }[];
-  performance: { date: string; value: number; label: string }[];
-  topPositions: { symbol: string; value: number; changePct: number; assetClass: string }[];
+  items: { milestone: string; phase?: string; date?: string; type?: string; notes?: string; targetWeight?: number; targetBodyFat?: number; targetMuscle?: number }[];
+  byPhase: { name: string; value: number }[];
+  nextMilestones: { milestone: string; date?: string; phase?: string }[];
 };
 
 type LooksPayload = {
@@ -47,7 +44,7 @@ type LooksPayload = {
 };
 
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 20 };
-const TABS = ["Nutrition", "Body Comp", "Training", "Portfolio", "Looksmaxx"] as const;
+const TABS = ["Nutrition", "Body Comp", "Training", "Roadmap", "Looksmaxx"] as const;
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
 const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
 const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "default"> = {
@@ -80,7 +77,7 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
 export default function App() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Nutrition");
   const [data, setData] = useState<DashboardPayload | null>(null);
-  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null);
+  const [roadmap, setRoadmap] = useState<RoadmapPayload | null>(null);
   const [looks, setLooks] = useState<LooksPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,16 +86,16 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [res, portfolioRes, looksRes] = await Promise.all([
+      const [res, roadmapRes, looksRes] = await Promise.all([
         fetch("/api/dashboard", { cache: "no-store" }),
-        fetch("/api/portfolio", { cache: "no-store" }),
+        fetch("/api/roadmap", { cache: "no-store" }),
         fetch("/api/looksmaxx", { cache: "no-store" }),
       ]);
       const json = (await res.json()) as DashboardPayload & { error?: string };
-      const portfolioJson = (await portfolioRes.json()) as PortfolioPayload & { error?: string };
+      const roadmapJson = (await roadmapRes.json()) as RoadmapPayload & { error?: string };
       const looksJson = (await looksRes.json()) as LooksPayload & { error?: string };
       if (!res.ok) throw new Error(json.error || "Failed to fetch dashboard data");
-      if (portfolioRes.ok) setPortfolio(portfolioJson);
+      if (roadmapRes.ok) setRoadmap(roadmapJson);
       if (looksRes.ok) setLooks(looksJson);
       setData(json);
     } catch (e) {
@@ -193,12 +190,14 @@ export default function App() {
         { label: "Progressing", val: exercises.filter((e) => e.latest.weight >= e.first.weight).length, sub: "Exercises moving up" },
       ];
     }
-    if (tab === "Portfolio") {
+    if (tab === "Roadmap") {
+      const next = roadmap?.nextMilestones?.[0];
+      const latest = roadmap?.items?.[0];
       return [
-        { label: "Portfolio Value", val: portfolio?.totalValue || 0, sub: "Stocks + crypto", suffix: "" },
-        { label: "Daily P&L", val: portfolio?.dailyPnl || 0, sub: `${portfolio?.dailyPnlPct ?? 0}% today` },
-        { label: "Positions", val: portfolio?.topPositions?.length || 0, sub: "Tracked symbols" },
-        { label: "Data", val: portfolio ? 1 : 0, sub: portfolio ? `Updated ${new Date(portfolio.updatedAt).toLocaleTimeString()}` : "Waiting for imports" },
+        { label: "Roadmap Items", val: roadmap?.items?.length || 0, sub: "Total milestones" },
+        { label: "Next Milestone", val: next ? 1 : 0, sub: next ? `${next.milestone}` : "No upcoming" },
+        { label: "Target BF", val: latest?.targetBodyFat ?? 0, suffix: "%", sub: "Latest target" },
+        { label: "Target Muscle", val: latest?.targetMuscle ?? 0, suffix: " lbs", sub: "Latest target" },
       ];
     }
     if (tab === "Looksmaxx") {
@@ -215,7 +214,7 @@ export default function App() {
       { label: "Cal Goal Hits", val: calHits, sub: `${dailyData.length} tracked days` },
       { label: "Protein Hits", val: proteinHits, sub: `${dailyData.length} tracked days` },
     ];
-  }, [tab, portfolio, looks, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
+  }, [tab, roadmap, looks, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
 
   return (
     <div className="page">
@@ -240,7 +239,7 @@ export default function App() {
           <Tab key="Nutrition" title="🍽️ Nutrition" />
           <Tab key="Body Comp" title="📊 Body Comp" />
           <Tab key="Training" title="🏋️ Training" />
-          <Tab key="Portfolio" title="📈 Portfolio" />
+          <Tab key="Roadmap" title="🗺️ Roadmap" />
           <Tab key="Looksmaxx" title="✨ Looksmaxx" />
         </Tabs>
       </div>
@@ -397,14 +396,14 @@ export default function App() {
         </div>
       )}
 
-      {!loading && tab === "Portfolio" && (
+      {!loading && tab === "Roadmap" && (
         <div className="grid">
           <Card className="panel">
             <CardBody>
-              <h3>Allocation</h3>
+              <h3>Roadmap phases</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={portfolio?.allocation || []} dataKey="value" nameKey="name" outerRadius={90} label />
+                  <Pie data={roadmap?.byPhase || []} dataKey="value" nameKey="name" outerRadius={90} label />
                   <Tooltip />
                   <Legend />
                 </PieChart>
@@ -414,33 +413,34 @@ export default function App() {
 
           <Card className="panel">
             <CardBody>
-              <h3>Portfolio performance</h3>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={portfolio?.performance || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="value" stroke="#60a5fa" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <h3>Next milestones</h3>
+              <div className="list">
+                {(roadmap?.nextMilestones || []).map((m, i) => (
+                  <div key={`${m.milestone}-${i}`} className="item">
+                    <div>
+                      <strong>{m.milestone}</strong>
+                      <p className="muted">{m.date || "No date"} · {m.phase || "No phase"}</p>
+                    </div>
+                  </div>
+                ))}
+                {!roadmap?.nextMilestones?.length && <p className="muted">No upcoming milestones yet.</p>}
+              </div>
             </CardBody>
           </Card>
 
           <Card className="panel">
             <CardBody>
-              <h3>Top positions</h3>
+              <h3>Roadmap items</h3>
               <div className="list">
-                {(portfolio?.topPositions || []).map((p) => (
-                  <div key={p.symbol} className="item">
+                {(roadmap?.items || []).slice(0, 8).map((it, i) => (
+                  <div key={`${it.milestone}-${i}`} className="item">
                     <div>
-                      <strong>{p.symbol}</strong>
-                      <p className="muted">{p.assetClass}</p>
+                      <strong>{it.milestone}</strong>
+                      <p className="muted">{it.phase || "Phase"} · {it.type || "Type"} · {it.date || "No date"}</p>
                     </div>
-                    <div className="right">${p.value.toFixed(2)} · {p.changePct >= 0 ? "+" : ""}{p.changePct}%</div>
+                    <div className="right">{it.targetWeight ? `${it.targetWeight} lbs` : ""}{it.targetBodyFat ? ` · ${it.targetBodyFat}% BF` : ""}</div>
                   </div>
                 ))}
-                {!portfolio?.topPositions?.length && <p className="muted">No portfolio imports yet. Add CSV/PDF files and re-import.</p>}
               </div>
             </CardBody>
           </Card>
@@ -488,7 +488,7 @@ export default function App() {
       <div className="mobile-nav">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""}>
-            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : t === "Portfolio" ? "📈" : "✨"}
+            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : t === "Roadmap" ? "🗺️" : "✨"}
             <span>{t}</span>
           </button>
         ))}

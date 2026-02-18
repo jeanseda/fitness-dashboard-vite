@@ -20,6 +20,8 @@ const dbMeals = normalizeId(process.env.NOTION_DB_MEALS);
 const dbBodyComp = normalizeId(process.env.NOTION_DB_BODYCOMP);
 const dbTraining = normalizeId(process.env.NOTION_DB_TRAINING);
 
+const roadmapDbId = "f392999d-8c9d-47a2-ad9d-229da2d5e6a0";
+
 const looksDbs = {
   daily: "fc92cf89-d93f-48e8-bb23-217e6d001716",
   fitness: "c1f09f44-3490-418d-9da3-8177895062ec",
@@ -190,6 +192,43 @@ app.get("/api/looksmaxx", async (_req, res) => {
     });
   } catch (error) {
     return res.json({ ...fallback, error: error instanceof Error ? error.message : "looksmaxx_error" });
+  }
+});
+
+
+app.get("/api/roadmap", async (_req, res) => {
+  const fallback = { updatedAt: new Date().toISOString(), items: [], byPhase: [], nextMilestones: [] };
+  if (!notionToken) return res.json(fallback);
+  try {
+    const notion = new Client({ auth: notionToken });
+    const rows = await notion.dataSources.query({ data_source_id: roadmapDbId, page_size: 100 });
+
+    const items = rows.results.map((r) => {
+      const p = r.properties || {};
+      const milestone = propTitle(firstExisting(p, ["Milestone", "Name", "Title"])) || "Untitled";
+      const phase = propSelect(firstExisting(p, ["Phase"]));
+      const type = propSelect(firstExisting(p, ["Type"]));
+      const date = propDate(firstExisting(p, ["Date"]));
+      const notes = propRichText(firstExisting(p, ["Notes"]));
+      const targetWeight = propNumber(firstExisting(p, ["Target Weight"]));
+      const targetBodyFat = propNumber(firstExisting(p, ["Target BF%", "Target BF"]));
+      const targetMuscle = propNumber(firstExisting(p, ["Target Muscle"]));
+      return { milestone, phase, type, date, notes, targetWeight, targetBodyFat, targetMuscle };
+    }).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+    const byPhaseMap = new Map();
+    for (const i of items) {
+      const k = i.phase || 'Unassigned';
+      byPhaseMap.set(k, (byPhaseMap.get(k) || 0) + 1);
+    }
+    const byPhase = Array.from(byPhaseMap.entries()).map(([name,value])=>({name,value}));
+
+    const today = new Date().toISOString().slice(0,10);
+    const nextMilestones = items.filter(i => !i.date || i.date >= today).slice(0,8).map(i => ({ milestone: i.milestone, date: i.date, phase: i.phase }));
+
+    return res.json({ updatedAt: new Date().toISOString(), items, byPhase, nextMilestones });
+  } catch (error) {
+    return res.json({ ...fallback, error: error instanceof Error ? error.message : 'roadmap_error' });
   }
 });
 
