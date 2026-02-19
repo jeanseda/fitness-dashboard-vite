@@ -232,6 +232,65 @@ app.get("/api/roadmap", async (_req, res) => {
   }
 });
 
+// Withings OAuth callback
+app.get("/callback", async (req, res) => {
+  const { code, error } = req.query;
+  
+  if (error) {
+    return res.status(400).send(`OAuth error: ${error}`);
+  }
+  
+  if (!code) {
+    return res.status(400).send("Missing authorization code");
+  }
+
+  try {
+    const form = new URLSearchParams({
+      action: "requesttoken",
+      grant_type: "authorization_code",
+      client_id: process.env.WITHINGS_CLIENT_ID,
+      client_secret: process.env.WITHINGS_CLIENT_SECRET,
+      code: code,
+      redirect_uri: "https://fitness-dashboard-vite.onrender.com/callback",
+    });
+
+    const tokenRes = await fetch("https://wbsapi.withings.net/v2/oauth2", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+
+    const json = await tokenRes.json();
+    
+    if (json.status !== 0) {
+      return res.status(400).send(`Token exchange failed: ${JSON.stringify(json)}`);
+    }
+
+    const body = json.body;
+    const tokenStatePath = path.join(__dirname, "data", "withings-token.json");
+    fs.mkdirSync(path.dirname(tokenStatePath), { recursive: true });
+    fs.writeFileSync(
+      tokenStatePath,
+      JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        access_token: body.access_token,
+        refresh_token: body.refresh_token,
+        expires_in: body.expires_in,
+      }, null, 2)
+    );
+
+    // Return the new refresh token so it can be added to .env
+    res.send(`
+      <h1>✅ Withings Connected!</h1>
+      <p>New tokens saved. Update your .env with this refresh token:</p>
+      <pre style="background:#f0f0f0;padding:10px;border-radius:5px;word-break:break-all">${body.refresh_token}</pre>
+      <p>Then redeploy to Render with the new token.</p>
+    `);
+  } catch (err) {
+    res.status(500).send(`Error: ${err.message}`);
+  }
+});
+
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath));
