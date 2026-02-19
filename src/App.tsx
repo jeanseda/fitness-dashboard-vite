@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Button, Card, CardBody, Chip, Spinner, Tab, Tabs } from "@heroui/react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Chip } from "@heroui/react";
 import {
   Area,
   AreaChart,
@@ -21,18 +21,17 @@ import {
 } from "recharts";
 import "./App.css";
 
-type Meal = { food: string; date: string; meal: string; calories: number; protein: number; source?: string };
-type BodyComp = { date: string; weight: number; bodyFat: number; muscleMass: number };
+/* ── Types ──────────────────────────────────────────────────── */
+type Meal        = { food: string; date: string; meal: string; calories: number; protein: number; source?: string };
+type BodyComp    = { date: string; weight: number; bodyFat: number; muscleMass: number };
 type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number; workoutType?: string };
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
-
 type RoadmapPayload = {
   updatedAt: string;
   items: { milestone: string; phase?: string; date?: string; type?: string; notes?: string; targetWeight?: number; targetBodyFat?: number; targetMuscle?: number }[];
   byPhase: { name: string; value: number }[];
   nextMilestones: { milestone: string; date?: string; phase?: string }[];
 };
-
 type LooksPayload = {
   updatedAt: string;
   dailyCount: number;
@@ -43,10 +42,13 @@ type LooksPayload = {
   latestGoals: { title: string; status?: string }[];
 };
 
+/* ── Constants ──────────────────────────────────────────────── */
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 20 };
-const TABS = ["Nutrition", "Body Comp", "Training", "Roadmap", "Looksmaxx"] as const;
+const TABS    = ["Nutrition", "Body Comp", "Training", "Roadmap", "Looksmaxx"] as const;
+
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
-const MEAL_EMOJI: Record<string, string> = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
+const MEAL_EMOJI: Record<string, string>  = { Breakfast: "🌅", Lunch: "🌞", Dinner: "🌙", Snack: "🍫", Shake: "🥤" };
+
 const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "default"> = {
   "Ideal Nutrition": "success",
   Restaurant: "danger",
@@ -55,48 +57,210 @@ const SRC_CLR: Record<string, "success" | "danger" | "primary" | "secondary" | "
   Other: "default",
 };
 
+const NAV_ITEMS = [
+  { key: "Nutrition"  as const, icon: "🍽️", label: "Nutrition"  },
+  { key: "Body Comp"  as const, icon: "📊", label: "Body Comp"  },
+  { key: "Training"   as const, icon: "🏋️", label: "Training"   },
+  { key: "Roadmap"    as const, icon: "🗺️", label: "Roadmap"    },
+  { key: "Looksmaxx"  as const, icon: "✨", label: "Looksmaxx"  },
+];
+
+const PAGE_META: Record<string, { title: string; subtitle: string }> = {
+  "Nutrition":  { title: "Nutrition",          subtitle: "Daily intake & macro tracking"     },
+  "Body Comp":  { title: "Body Composition",   subtitle: "Weight, fat & muscle trends"       },
+  "Training":   { title: "Training",           subtitle: "Workout progression & history"     },
+  "Roadmap":    { title: "Roadmap",            subtitle: "Milestones & phase planning"       },
+  "Looksmaxx":  { title: "Looksmaxx",          subtitle: "Daily logs, products & goals"      },
+};
+
+const PIE_COLORS = ["#6366f1", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b"];
+
+/* ── Animation presets ──────────────────────────────────────── */
+const fadeIn = {
+  hidden: { opacity: 0, y: 18 },
+  show:   { opacity: 1, y: 0,  transition: { duration: .36, ease: [.4, 0, .2, 1] as const } },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITY COMPONENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Animated counter */
 function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
   const [display, setDisplay] = useState(0);
   useEffect(() => {
-    const duration = 600;
-    const start = performance.now();
-    let frame = 0;
+    const duration = 700;
+    const start    = performance.now();
+    let frame      = 0;
     const tick = (now: number) => {
       const progress = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
+      const eased    = 1 - Math.pow(1 - progress, 3);
       setDisplay(Math.round(value * eased));
       if (progress < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [value]);
-
   return <>{display}{suffix}</>;
 }
 
-export default function App() {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Nutrition");
-  const [data, setData] = useState<DashboardPayload | null>(null);
-  const [roadmap, setRoadmap] = useState<RoadmapPayload | null>(null);
-  const [looks, setLooks] = useState<LooksPayload | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/* SVG radial progress ring */
+function RadialRing({
+  value, max, color, size = 88, centerLabel, sublabel,
+}: { value: number; max: number; color: string; size?: number; centerLabel: string; sublabel: string }) {
+  const r     = (size - 14) / 2;
+  const circ  = 2 * Math.PI * r;
+  const pct   = Math.min(value / Math.max(max, 1), 1);
+  const offset = circ * (1 - pct);
 
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+      <svg width={size} height={size} style={{ overflow: "visible" }}>
+        {/* track */}
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke="rgba(63,63,70,.35)"
+          strokeWidth={8}
+        />
+        {/* fill */}
+        <circle
+          cx={size / 2} cy={size / 2} r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={8}
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{
+            transition: "stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1)",
+            filter: `drop-shadow(0 0 7px ${color})`,
+          }}
+        />
+        {/* center label */}
+        <text
+          x={size / 2} y={size / 2 - 3}
+          textAnchor="middle"
+          fill={color}
+          fontSize={13}
+          fontWeight="700"
+          fontFamily="inherit"
+        >
+          {centerLabel}
+        </text>
+        <text
+          x={size / 2} y={size / 2 + 13}
+          textAnchor="middle"
+          fill="var(--tx3)"
+          fontSize={9.5}
+          fontFamily="inherit"
+        >
+          {sublabel}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+/* Skeleton primitives */
+function SkLine({ w, h, mb = 0 }: { w: string | number; h: number; mb?: number }) {
+  return <span className="sk" style={{ width: w, height: h, marginBottom: mb, display: "block" }} />;
+}
+
+function SkKpiCard() {
+  return (
+    <div className="sk-kpi">
+      <SkLine w="52%" h={10} mb={9} />
+      <SkLine w="58%" h={26} mb={7} />
+      <SkLine w="68%" h={10} />
+    </div>
+  );
+}
+
+function SkPanel({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="sk-panel">
+      <SkLine w="38%" h={13} mb={18} />
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{ paddingBottom: 12, marginBottom: 12, borderBottom: "1px solid rgba(63,63,70,.2)" }}>
+          <SkLine w={`${65 + (i % 3) * 12}%`} h={12} mb={6} />
+          <SkLine w="42%" h={10} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Glassy recharts tooltip */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function GlassTip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="chart-tip">
+      {label && <div className="chart-tip-label">{label}</div>}
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="chart-tip-row" style={{ color: p.color }}>
+          {p.name}: <strong>{p.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Stagger-animated card wrapper */
+function Card({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
+  return (
+    <motion.div
+      className={`glass-panel ${className}`}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: .38, delay, ease: [.4, 0, .2, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/* Panel title bar */
+function PanelTitle({ children, accentColor = "var(--indigo)" }: { children: React.ReactNode; accentColor?: string }) {
+  return (
+    <div className="panel-title">
+      <span className="panel-dot" style={{ background: accentColor, boxShadow: `0 0 7px ${accentColor}` }} />
+      {children}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN APP
+   ═══════════════════════════════════════════════════════════════ */
+export default function App() {
+  const [tab,         setTab]         = useState<(typeof TABS)[number]>("Nutrition");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [data,        setData]        = useState<DashboardPayload | null>(null);
+  const [roadmap,     setRoadmap]     = useState<RoadmapPayload   | null>(null);
+  const [looks,       setLooks]       = useState<LooksPayload     | null>(null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  /* ── Data fetch ───────────────────────────────────────────── */
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [res, roadmapRes, looksRes] = await Promise.all([
-        fetch("/api/dashboard", { cache: "no-store" }),
-        fetch("/api/roadmap", { cache: "no-store" }),
-        fetch("/api/looksmaxx", { cache: "no-store" }),
+        fetch("/api/dashboard",  { cache: "no-store" }),
+        fetch("/api/roadmap",    { cache: "no-store" }),
+        fetch("/api/looksmaxx",  { cache: "no-store" }),
       ]);
-      const json = (await res.json()) as DashboardPayload & { error?: string };
-      const roadmapJson = (await roadmapRes.json()) as RoadmapPayload & { error?: string };
-      const looksJson = (await looksRes.json()) as LooksPayload & { error?: string };
-      if (!res.ok) throw new Error(json.error || "Failed to fetch dashboard data");
+      const json       = (await res.json())       as DashboardPayload & { error?: string };
+      const roadmapJson= (await roadmapRes.json())as RoadmapPayload   & { error?: string };
+      const looksJson  = (await looksRes.json())  as LooksPayload     & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to fetch dashboard");
       if (roadmapRes.ok) setRoadmap(roadmapJson);
-      if (looksRes.ok) setLooks(looksJson);
+      if (looksRes.ok)   setLooks(looksJson);
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
@@ -105,17 +269,18 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  useEffect(() => { void fetchAll(); }, [fetchAll]);
 
-  const meals = useMemo(() => data?.meals ?? [], [data]);
-  const bodyComp = useMemo(() => data?.bodyComp ?? [], [data]);
-  const training = useMemo(() => data?.training ?? [], [data]);
-  const today = new Date().toLocaleDateString("en-CA");
+  /* ── Memos ────────────────────────────────────────────────── */
+  const meals     = useMemo(() => data?.meals     ?? [], [data]);
+  const bodyComp  = useMemo(() => data?.bodyComp  ?? [], [data]);
+  const training  = useMemo(() => data?.training  ?? [], [data]);
+  const today     = new Date().toLocaleDateString("en-CA");
 
   const todayMeals = useMemo(
-    () => meals.filter((m) => m.date === today).sort((a, b) => (MEAL_ORDER[a.meal] ?? 9) - (MEAL_ORDER[b.meal] ?? 9)),
+    () => meals
+      .filter((m) => m.date === today)
+      .sort((a, b) => (MEAL_ORDER[a.meal] ?? 9) - (MEAL_ORDER[b.meal] ?? 9)),
     [meals, today],
   );
 
@@ -125,39 +290,45 @@ export default function App() {
       if (!m.date) return;
       if (!byDate[m.date]) {
         byDate[m.date] = {
-          date: m.date,
-          calories: 0,
-          protein: 0,
+          date: m.date, calories: 0, protein: 0,
           label: new Date(`${m.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
         };
       }
       byDate[m.date].calories += m.calories || 0;
-      byDate[m.date].protein += m.protein || 0;
+      byDate[m.date].protein  += m.protein  || 0;
     });
     return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
   }, [meals]);
 
   const bodyCompSorted = useMemo(
-    () => [...bodyComp].sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({ ...d, label: new Date(`${d.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) })),
+    () => [...bodyComp]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => ({
+        ...d,
+        label: new Date(`${d.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      })),
     [bodyComp],
   );
 
-  const todayTotals = todayMeals.reduce((a, m) => ({ cal: a.cal + (m.calories || 0), pro: a.pro + (m.protein || 0) }), { cal: 0, pro: 0 });
-  const calHits = dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length;
-  const proteinHits = dailyData.filter((d) => d.protein >= TARGETS.proteinMin).length;
+  const todayTotals = todayMeals.reduce(
+    (a, m) => ({ cal: a.cal + (m.calories || 0), pro: a.pro + (m.protein || 0) }),
+    { cal: 0, pro: 0 },
+  );
+  const calHits     = dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length;
+  const proteinHits = dailyData.filter((d) => d.protein  >= TARGETS.proteinMin).length;
+  const last7Cal    = dailyData.slice(-7);
 
   const latestBody = bodyCompSorted[bodyCompSorted.length - 1];
-  const prevBody = bodyCompSorted[bodyCompSorted.length - 2];
-  const weightDelta = latestBody && prevBody ? Number((latestBody.weight - prevBody.weight).toFixed(1)) : 0;
-  const bodyFatDelta = latestBody && prevBody ? Number((latestBody.bodyFat - prevBody.bodyFat).toFixed(1)) : 0;
-  const muscleDelta = latestBody && prevBody ? Number((latestBody.muscleMass - prevBody.muscleMass).toFixed(1)) : 0;
+  const prevBody   = bodyCompSorted[bodyCompSorted.length - 2];
+  const weightDelta  = latestBody && prevBody ? Number((latestBody.weight    - prevBody.weight).toFixed(1))    : 0;
+  const bodyFatDelta = latestBody && prevBody ? Number((latestBody.bodyFat   - prevBody.bodyFat).toFixed(1))   : 0;
+  const muscleDelta  = latestBody && prevBody ? Number((latestBody.muscleMass - prevBody.muscleMass).toFixed(1)): 0;
 
   const exercises = useMemo(() => {
     const byEx: Record<string, TrainingEntry[]> = {};
     training.forEach((e) => {
       if (!e.exercise) return;
-      if (!byEx[e.exercise]) byEx[e.exercise] = [];
-      byEx[e.exercise].push(e);
+      (byEx[e.exercise] ??= []).push(e);
     });
     return Object.entries(byEx).map(([name, entries]) => {
       const sorted = entries.sort((a, b) => a.date.localeCompare(b.date));
@@ -165,334 +336,597 @@ export default function App() {
     });
   }, [training]);
 
-  const workoutDays = useMemo(() => [...new Set(training.map((t) => t.date).filter(Boolean))], [training]);
+  const workoutDays = useMemo(
+    () => [...new Set(training.map((t) => t.date).filter(Boolean))],
+    [training],
+  );
   const lastWorkout = workoutDays.sort().at(-1);
   const latestExerciseEntries = useMemo(
     () => [...training].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6),
     [training],
   );
 
-
+  /* ── KPI cards data ───────────────────────────────────────── */
   const topCards = useMemo(() => {
-    if (tab === "Body Comp") {
-      return [
-        { label: "Weight", val: latestBody?.weight || 0, suffix: " lbs", sub: `${weightDelta >= 0 ? "+" : ""}${weightDelta} vs prior` },
-        { label: "Body Fat", val: latestBody?.bodyFat || 0, suffix: "%", sub: `${bodyFatDelta >= 0 ? "+" : ""}${bodyFatDelta} vs prior` },
-        { label: "Muscle", val: latestBody?.muscleMass || 0, suffix: " lbs", sub: `${muscleDelta >= 0 ? "+" : ""}${muscleDelta} vs prior` },
-        { label: "Goal Gap", val: latestBody ? Math.max(0, Number((latestBody.bodyFat - TARGETS.bodyFatGoal).toFixed(1))) : 0, suffix: "%", sub: `to ${TARGETS.bodyFatGoal}% goal` },
-      ];
-    }
-    if (tab === "Training") {
-      return [
-        { label: "Workout Days", val: workoutDays.length, sub: "Unique training dates" },
-        { label: "Exercises", val: exercises.length, sub: "Tracked lifts" },
-        { label: "Last Session", val: lastWorkout ? new Date(`${lastWorkout}T12:00:00`).getDate() : 0, sub: lastWorkout ? new Date(`${lastWorkout}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "No data" },
-        { label: "Progressing", val: exercises.filter((e) => e.latest.weight >= e.first.weight).length, sub: "Exercises moving up" },
-      ];
-    }
+    if (tab === "Body Comp") return [
+      { label: "Weight",   val: latestBody?.weight    || 0, suffix: " lbs", sub: `${weightDelta  >= 0 ? "+" : ""}${weightDelta} vs prior` },
+      { label: "Body Fat", val: latestBody?.bodyFat   || 0, suffix: "%",    sub: `${bodyFatDelta >= 0 ? "+" : ""}${bodyFatDelta} vs prior` },
+      { label: "Muscle",   val: latestBody?.muscleMass|| 0, suffix: " lbs", sub: `${muscleDelta  >= 0 ? "+" : ""}${muscleDelta} vs prior` },
+      { label: "Goal Gap", val: latestBody ? Math.max(0, Number((latestBody.bodyFat - TARGETS.bodyFatGoal).toFixed(1))) : 0, suffix: "%", sub: `to ${TARGETS.bodyFatGoal}% goal` },
+    ];
+    if (tab === "Training") return [
+      { label: "Workout Days", val: workoutDays.length, sub: "Unique training dates" },
+      { label: "Exercises",    val: exercises.length,   sub: "Tracked lifts" },
+      { label: "Last Session", val: lastWorkout ? new Date(`${lastWorkout}T12:00:00`).getDate() : 0,
+        sub: lastWorkout ? new Date(`${lastWorkout}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "No data" },
+      { label: "Progressing",  val: exercises.filter((e) => e.latest.weight >= e.first.weight).length, sub: "Exercises moving up" },
+    ];
     if (tab === "Roadmap") {
-      const next = roadmap?.nextMilestones?.[0];
+      const next   = roadmap?.nextMilestones?.[0];
       const latest = roadmap?.items?.[0];
       return [
-        { label: "Roadmap Items", val: roadmap?.items?.length || 0, sub: "Total milestones" },
-        { label: "Next Milestone", val: next ? 1 : 0, sub: next ? `${next.milestone}` : "No upcoming" },
-        { label: "Target BF", val: latest?.targetBodyFat ?? 0, suffix: "%", sub: "Latest target" },
-        { label: "Target Muscle", val: latest?.targetMuscle ?? 0, suffix: " lbs", sub: "Latest target" },
+        { label: "Roadmap Items",  val: roadmap?.items?.length || 0, sub: "Total milestones" },
+        { label: "Next Milestone", val: next ? 1 : 0,                sub: next?.milestone ?? "No upcoming" },
+        { label: "Target BF",      val: latest?.targetBodyFat ?? 0,  suffix: "%",    sub: "Latest target" },
+        { label: "Target Muscle",  val: latest?.targetMuscle  ?? 0,  suffix: " lbs", sub: "Latest target" },
       ];
     }
-    if (tab === "Looksmaxx") {
-      return [
-        { label: "Daily Logs", val: looks?.dailyCount || 0, sub: "Looksmaxx HQ" },
-        { label: "Fitness Logs", val: looks?.fitnessCount || 0, sub: "Workout + body" },
-        { label: "Products", val: looks?.productsCount || 0, sub: "Stack tracked" },
-        { label: "Goals", val: looks?.goalsCount || 0, sub: "Milestones" },
-      ];
-    }
-    return [
-      { label: "Today Calories", val: todayTotals.cal, sub: `Target ${TARGETS.calories}` },
-      { label: "Today Protein", val: todayTotals.pro, suffix: "g", sub: `Target ${TARGETS.protein}g` },
-      { label: "Cal Goal Hits", val: calHits, sub: `${dailyData.length} tracked days` },
-      { label: "Protein Hits", val: proteinHits, sub: `${dailyData.length} tracked days` },
+    if (tab === "Looksmaxx") return [
+      { label: "Daily Logs",   val: looks?.dailyCount    || 0, sub: "Looksmaxx HQ"    },
+      { label: "Fitness Logs", val: looks?.fitnessCount  || 0, sub: "Workout + body"  },
+      { label: "Products",     val: looks?.productsCount || 0, sub: "Stack tracked"   },
+      { label: "Goals",        val: looks?.goalsCount    || 0, sub: "Milestones"      },
     ];
-  }, [tab, roadmap, looks, latestBody, weightDelta, bodyFatDelta, muscleDelta, workoutDays.length, exercises, lastWorkout, todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
+    // Nutrition
+    return [
+      { label: "Today's Calories", val: todayTotals.cal,  sub: `Target ${TARGETS.calories}`  },
+      { label: "Today's Protein",  val: todayTotals.pro,  suffix: "g", sub: `Target ${TARGETS.protein}g` },
+      { label: "Cal Goal Hits",    val: calHits,          sub: `${dailyData.length} tracked days` },
+      { label: "Protein Hits",     val: proteinHits,      sub: `${dailyData.length} tracked days` },
+    ];
+  }, [tab, roadmap, looks, latestBody, weightDelta, bodyFatDelta, muscleDelta,
+      workoutDays.length, exercises, lastWorkout,
+      todayTotals.cal, todayTotals.pro, calHits, proteinHits, dailyData.length]);
 
+  const meta = PAGE_META[tab];
+
+  /* ── Close sidebar on navigation (mobile UX) ─────────────── */
+  function navigate(t: typeof tab) {
+    setTab(t);
+    setSidebarOpen(false);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     RENDER
+     ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="page">
-      <div className="hero">
-        <div>
-          <h1>💪 Fitness Command Center</h1>
-          <p>{data?.updatedAt ? `Last sync ${new Date(data.updatedAt).toLocaleTimeString()}` : "Connect to Notion to begin"}</p>
+    <div className="shell">
+
+      {/* Sidebar overlay (mobile) */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? " visible" : ""}`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* ── Sidebar ─────────────────────────────────────────── */}
+      <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
+        <div className="sidebar-logo">
+          <div className="logo-badge">FC</div>
+          <div>
+            <div className="logo-name">FitCore</div>
+            <span className="logo-tagline">Command Center</span>
+          </div>
         </div>
-        <Button color="primary" variant="shadow" onPress={() => void fetchAll()}>Refresh</Button>
-      </div>
 
-      <div className="kpis">
-        {topCards.map((k, i) => (
-          <motion.div key={k.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-            <Card><CardBody><p>{k.label}</p><h3><AnimatedNumber value={Number(k.val) || 0} suffix={k.suffix} /></h3><small>{k.sub}</small></CardBody></Card>
-          </motion.div>
-        ))}
-      </div>
+        <nav className="sidebar-nav">
+          {NAV_ITEMS.map(({ key, icon, label }) => (
+            <button
+              key={key}
+              className={`nav-item${tab === key ? " active" : ""}`}
+              onClick={() => navigate(key)}
+            >
+              <span className="nav-icon">{icon}</span>
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
 
-      <div className="tab-wrap desktop-tabs">
-        <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as (typeof TABS)[number])} aria-label="Dashboard tabs" color="primary" variant="underlined">
-          <Tab key="Nutrition" title="🍽️ Nutrition" />
-          <Tab key="Body Comp" title="📊 Body Comp" />
-          <Tab key="Training" title="🏋️ Training" />
-          <Tab key="Roadmap" title="🗺️ Roadmap" />
-          <Tab key="Looksmaxx" title="✨ Looksmaxx" />
-        </Tabs>
-      </div>
+        <div className="sidebar-footer">
+          <span className="sync-dot" />
+          <span className="sync-text">
+            {data?.updatedAt
+              ? `Synced ${new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : "Not connected"}
+          </span>
+        </div>
+      </aside>
 
-      {loading && <div className="state"><Spinner size="lg" color="primary" /><span>Loading your latest data…</span></div>}
-      {error && <Card className="error"><CardBody>{error}</CardBody></Card>}
+      {/* ── Main column ─────────────────────────────────────── */}
+      <div className="main">
 
-      {!loading && tab === "Nutrition" && (
-        <div className="grid">
-          <Card className="panel">
-            <CardBody>
-              <h3>Today&apos;s meals</h3>
-              <div className="list">
-                {todayMeals.map((m, i) => (
-                  <div key={i} className="item">
-                    <div className="left">
-                      <span>{MEAL_EMOJI[m.meal] || "🍴"}</span>
-                      <div>
-                        <strong>{m.food}</strong>
-                        <Chip size="sm" color={SRC_CLR[m.source || "Other"]}>{m.source || "Other"}</Chip>
+        {/* Header */}
+        <header className="header">
+          <div className="header-left">
+            <button
+              className="hamburger"
+              onClick={() => setSidebarOpen((o) => !o)}
+              aria-label="Toggle menu"
+            >
+              <div className="ham-lines"><span /><span /><span /></div>
+            </button>
+            <div className="header-title">
+              <h2>{meta.title}</h2>
+              <p>{meta.subtitle}</p>
+            </div>
+          </div>
+          <div className="header-right">
+            <button className="refresh-btn" onClick={() => void fetchAll()}>
+              <span className="refresh-icon">↻</span> Refresh
+            </button>
+          </div>
+        </header>
+
+        {/* Scroll area */}
+        <div className="scroll-area">
+
+          {/* Error bar */}
+          {error && (
+            <div className="error-bar">
+              <span>⚠️</span> {error}
+            </div>
+          )}
+
+          {/* ── KPI Row ───────────────────────────────────── */}
+          <div className="kpis">
+            {loading
+              ? [0,1,2,3].map((i) => <SkKpiCard key={i} />)
+              : topCards.map((k, i) => (
+                <motion.div
+                  key={k.label}
+                  className="kpi-card"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.08, duration: .35, ease: [.4,0,.2,1] }}
+                >
+                  <div className="kpi-label">{k.label}</div>
+                  <div className="kpi-value">
+                    <AnimatedNumber value={Number(k.val) || 0} suffix={k.suffix ?? ""} />
+                  </div>
+                  <div className="kpi-sub">{k.sub}</div>
+
+                  {/* Sparklines for Nutrition tab */}
+                  {tab === "Nutrition" && i === 0 && last7Cal.length > 1 && (
+                    <div className="sparkline-wrap">
+                      <ResponsiveContainer width="100%" height={34}>
+                        <LineChart data={last7Cal} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
+                          <Line type="monotone" dataKey="calories" stroke="#6366f1" strokeWidth={1.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {tab === "Nutrition" && i === 1 && last7Cal.length > 1 && (
+                    <div className="sparkline-wrap">
+                      <ResponsiveContainer width="100%" height={34}>
+                        <LineChart data={last7Cal} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
+                          <Line type="monotone" dataKey="protein" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  <div className="kpi-glow" />
+                </motion.div>
+              ))
+            }
+          </div>
+
+          {/* ── Tab Content ───────────────────────────────── */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={loading ? "__loading__" : tab}
+              variants={fadeIn}
+              initial="hidden"
+              animate="show"
+              exit={{ opacity: 0, transition: { duration: .18 } }}
+            >
+
+              {/* LOADING SKELETONS */}
+              {loading && (
+                <div className="content-grid">
+                  <SkPanel rows={4} />
+                  <SkPanel rows={4} />
+                </div>
+              )}
+
+              {/* ── NUTRITION ─────────────────────────────── */}
+              {!loading && tab === "Nutrition" && (
+                <div className="content-grid">
+
+                  {/* Daily Goals radial rings */}
+                  <Card delay={0}>
+                    <div className="panel-body">
+                      <PanelTitle>Daily Goals</PanelTitle>
+                      <div className="rings-row">
+                        <RadialRing
+                          value={todayTotals.cal}
+                          max={TARGETS.calories}
+                          color="#6366f1"
+                          centerLabel={`${Math.round((todayTotals.cal / TARGETS.calories) * 100)}%`}
+                          sublabel="Calories"
+                        />
+                        <RadialRing
+                          value={todayTotals.pro}
+                          max={TARGETS.protein}
+                          color="#f59e0b"
+                          centerLabel={`${Math.round((todayTotals.pro / TARGETS.protein) * 100)}%`}
+                          sublabel="Protein"
+                        />
+                        <RadialRing
+                          value={calHits}
+                          max={Math.max(dailyData.length, 1)}
+                          color="#10b981"
+                          centerLabel={`${Math.round((calHits / Math.max(dailyData.length, 1)) * 100)}%`}
+                          sublabel="Cal Hit Rate"
+                        />
+                        <RadialRing
+                          value={proteinHits}
+                          max={Math.max(dailyData.length, 1)}
+                          color="#8b5cf6"
+                          centerLabel={`${Math.round((proteinHits / Math.max(dailyData.length, 1)) * 100)}%`}
+                          sublabel="Pro Hit Rate"
+                        />
                       </div>
                     </div>
-                    <div className="right">{m.calories} cal · {m.protein}g</div>
-                  </div>
-                ))}
-                {!todayMeals.length && <p className="muted">Nothing logged yet today.</p>}
-              </div>
-            </CardBody>
-          </Card>
+                  </Card>
 
-          <Card className="panel">
-            <CardBody>
-              <h3>Calories trend</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={dailyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <ReferenceLine y={TARGETS.caloriesMin} stroke="#22c55e" strokeDasharray="5 5" />
-                  <Bar dataKey="calories" radius={[6, 6, 0, 0]}>
-                    {dailyData.map((d, i) => <Cell key={i} fill={d.calories >= TARGETS.caloriesMin ? "#22c55e" : "#6366f1"} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-
-              <h3 style={{ marginTop: 14 }}>Protein trend</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={dailyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <ReferenceLine y={TARGETS.proteinMin} stroke="#f59e0b" strokeDasharray="5 5" />
-                  <Line type="monotone" dataKey="protein" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {!loading && tab === "Body Comp" && (
-        <div className="grid">
-          <Card className="panel">
-            <CardBody>
-              <h3>Weight + Muscle trend</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={bodyCompSorted}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="weight" stroke="#60a5fa" strokeWidth={2.5} name="Weight" />
-                  <Line type="monotone" dataKey="muscleMass" stroke="#34d399" strokeWidth={2.5} name="Muscle" />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-
-          <Card className="panel">
-            <CardBody>
-              <h3>Body fat trajectory</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={bodyCompSorted}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <ReferenceLine y={TARGETS.bodyFatGoal} stroke="#22c55e" strokeDasharray="5 5" />
-                  <Area type="monotone" dataKey="bodyFat" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.25} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-
-          <Card className="panel">
-            <CardBody>
-              <h3>Latest exercises (weight × reps)</h3>
-              <div className="list">
-                {latestExerciseEntries.map((e, i) => (
-                  <div key={`${e.exercise}-${e.date}-${i}`} className="item">
-                    <div>
-                      <strong>{e.exercise}</strong>
-                      <p className="muted">{e.date || "No date"} · {e.workoutType || "Workout"}</p>
-                    </div>
-                    <div className="right">{e.weight} lbs × {String(e.reps)}</div>
-                  </div>
-                ))}
-                {!latestExerciseEntries.length && <p className="muted">No exercise entries yet.</p>}
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {!loading && tab === "Training" && (
-        <div className="grid">
-          <Card className="panel">
-            <CardBody>
-              <h3>Exercise progression</h3>
-              <div className="list">
-                {exercises.map((ex) => {
-                  const delta = ex.latest.weight - ex.first.weight;
-                  return (
-                    <div key={ex.name} className="item">
-                      <div>
-                        <strong>{ex.name}</strong>
-                        <p className="muted">{ex.sessions} sessions · latest {ex.latest.weight} lbs × {ex.latest.reps}</p>
+                  {/* Today's meals */}
+                  <Card delay={0.07}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#f59e0b">Today&apos;s Meals</PanelTitle>
+                      <div className="list-stack">
+                        {todayMeals.map((m, i) => (
+                          <div key={i} className="list-row">
+                            <div className="row-left">
+                              <span className="row-emoji">{MEAL_EMOJI[m.meal] || "🍴"}</span>
+                              <div style={{ minWidth: 0 }}>
+                                <span className="row-title">{m.food}</span>
+                                <Chip size="sm" color={SRC_CLR[m.source ?? "Other"]} variant="flat"
+                                  style={{ fontSize: 10, marginTop: 3 }}>
+                                  {m.source ?? "Other"}
+                                </Chip>
+                              </div>
+                            </div>
+                            <div className="row-right">{m.calories} kcal · {m.protein}g</div>
+                          </div>
+                        ))}
+                        {!todayMeals.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem", padding: "6px 0" }}>
+                            Nothing logged yet today.
+                          </p>
+                        )}
                       </div>
-                      <Chip color={delta >= 0 ? "success" : "danger"} variant="flat">{delta >= 0 ? "+" : ""}{delta} lbs</Chip>
                     </div>
-                  );
-                })}
-              </div>
-            </CardBody>
-          </Card>
+                  </Card>
 
-          <Card className="panel">
-            <CardBody>
-              <h3>Body fat trend</h3>
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={bodyCompSorted}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3250" />
-                  <XAxis dataKey="label" tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#96a0c8", fontSize: 11 }} />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="bodyFat" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.25} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
+                  {/* Calories chart */}
+                  <Card delay={0.14}>
+                    <div className="panel-body">
+                      <PanelTitle>Weekly Calories</PanelTitle>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={dailyData} barSize={18}>
+                          <defs>
+                            <linearGradient id="barHit"  x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10b981" stopOpacity={.9} />
+                              <stop offset="100%" stopColor="#10b981" stopOpacity={.4} />
+                            </linearGradient>
+                            <linearGradient id="barMiss" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#6366f1" stopOpacity={.9} />
+                              <stop offset="100%" stopColor="#6366f1" stopOpacity={.4} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,63,70,.35)" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<GlassTip />} />
+                          <ReferenceLine y={TARGETS.caloriesMin} stroke="#10b981" strokeDasharray="4 4" strokeOpacity={.6} />
+                          <Bar dataKey="calories" name="Calories" radius={[6, 6, 0, 0]}>
+                            {dailyData.map((d, i) => (
+                              <Cell key={i} fill={d.calories >= TARGETS.caloriesMin ? "url(#barHit)" : "url(#barMiss)"} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                  {/* Protein chart */}
+                  <Card delay={0.21}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#f59e0b">Protein Trend</PanelTitle>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <AreaChart data={dailyData}>
+                          <defs>
+                            <linearGradient id="protGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#f59e0b" stopOpacity={.38} />
+                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}   />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,63,70,.35)" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<GlassTip />} />
+                          <ReferenceLine y={TARGETS.proteinMin} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={.6} />
+                          <Area type="monotone" dataKey="protein" name="Protein (g)"
+                            stroke="#f59e0b" strokeWidth={2.5} fill="url(#protGrad)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                </div>
+              )}
+
+              {/* ── BODY COMP ──────────────────────────────── */}
+              {!loading && tab === "Body Comp" && (
+                <div className="content-grid">
+
+                  <Card delay={0}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#60a5fa">Weight &amp; Muscle Trend</PanelTitle>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <LineChart data={bodyCompSorted}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,63,70,.35)" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<GlassTip />} />
+                          <Legend wrapperStyle={{ fontSize: 12, color: "#a1a1aa" }} />
+                          <Line type="monotone" dataKey="weight"     stroke="#60a5fa" strokeWidth={2.5} name="Weight (lbs)"
+                            dot={{ r: 3, fill: "#60a5fa", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                          <Line type="monotone" dataKey="muscleMass" stroke="#34d399" strokeWidth={2.5} name="Muscle (lbs)"
+                            dot={{ r: 3, fill: "#34d399", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.07}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#f59e0b">Body Fat Trajectory</PanelTitle>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <AreaChart data={bodyCompSorted}>
+                          <defs>
+                            <linearGradient id="bfGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#f59e0b" stopOpacity={.38} />
+                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}   />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,63,70,.35)" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<GlassTip />} />
+                          <ReferenceLine y={TARGETS.bodyFatGoal} stroke="#10b981" strokeDasharray="4 4" strokeOpacity={.7} label={{ value: "Goal", fill: "#10b981", fontSize: 10 }} />
+                          <Area type="monotone" dataKey="bodyFat" name="Body Fat %"
+                            stroke="#f59e0b" strokeWidth={2.5} fill="url(#bfGrad)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.14}>
+                    <div className="panel-body">
+                      <PanelTitle>Recent Training Sessions</PanelTitle>
+                      <div className="list-stack">
+                        {latestExerciseEntries.map((e, i) => (
+                          <div key={`${e.exercise}-${e.date}-${i}`} className="list-row">
+                            <div>
+                              <span className="row-title">{e.exercise}</span>
+                              <span className="row-sub">{e.date || "No date"} · {e.workoutType || "Workout"}</span>
+                            </div>
+                            <div className="row-right">{e.weight} lbs × {String(e.reps)}</div>
+                          </div>
+                        ))}
+                        {!latestExerciseEntries.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem" }}>No exercise entries yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                </div>
+              )}
+
+              {/* ── TRAINING ──────────────────────────────── */}
+              {!loading && tab === "Training" && (
+                <div className="content-grid">
+
+                  <Card delay={0}>
+                    <div className="panel-body">
+                      <PanelTitle>Exercise Progression</PanelTitle>
+                      <div className="list-stack">
+                        {exercises.map((ex) => {
+                          const delta = ex.latest.weight - ex.first.weight;
+                          return (
+                            <div key={ex.name} className="list-row">
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <span className="row-title">{ex.name}</span>
+                                <span className="row-sub">{ex.sessions} sessions · latest {ex.latest.weight} lbs × {ex.latest.reps}</span>
+                              </div>
+                              <Chip color={delta >= 0 ? "success" : "danger"} variant="flat" size="sm">
+                                {delta >= 0 ? "+" : ""}{delta} lbs
+                              </Chip>
+                            </div>
+                          );
+                        })}
+                        {!exercises.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem" }}>No exercise data yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.07}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#f59e0b">Body Fat Trend</PanelTitle>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <AreaChart data={bodyCompSorted}>
+                          <defs>
+                            <linearGradient id="bfGrad2" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#f59e0b" stopOpacity={.38} />
+                              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}   />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,63,70,.35)" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: "#52525b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<GlassTip />} />
+                          <Area type="monotone" dataKey="bodyFat" name="Body Fat %"
+                            stroke="#f59e0b" strokeWidth={2.5} fill="url(#bfGrad2)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                </div>
+              )}
+
+              {/* ── ROADMAP ────────────────────────────────── */}
+              {!loading && tab === "Roadmap" && (
+                <div className="content-grid">
+
+                  <Card delay={0}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#8b5cf6">Roadmap Phases</PanelTitle>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie
+                            data={roadmap?.byPhase || []}
+                            dataKey="value"
+                            nameKey="name"
+                            outerRadius={90}
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            label={({ name, percent }: any) => `${String(name)} ${(Number(percent) * 100).toFixed(0)}%`}
+                            strokeWidth={2}
+                            stroke="rgba(9,9,11,.8)"
+                          >
+                            {(roadmap?.byPhase || []).map((_, i) => (
+                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip content={<GlassTip />} />
+                          <Legend wrapperStyle={{ fontSize: 12, color: "#a1a1aa" }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.07}>
+                    <div className="panel-body">
+                      <PanelTitle>Next Milestones</PanelTitle>
+                      <div className="list-stack">
+                        {(roadmap?.nextMilestones || []).map((m, i) => (
+                          <div key={`${m.milestone}-${i}`} className="list-row">
+                            <div>
+                              <span className="row-title">{m.milestone}</span>
+                              <span className="row-sub">{m.date || "No date"} · {m.phase || "No phase"}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {!roadmap?.nextMilestones?.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem" }}>No upcoming milestones yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.14}>
+                    <div className="panel-body">
+                      <PanelTitle>All Roadmap Items</PanelTitle>
+                      <div className="list-stack">
+                        {(roadmap?.items || []).slice(0, 8).map((it, i) => (
+                          <div key={`${it.milestone}-${i}`} className="list-row">
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <span className="row-title">{it.milestone}</span>
+                              <span className="row-sub">{it.phase || "Phase"} · {it.type || "Type"} · {it.date || "No date"}</span>
+                            </div>
+                            <div className="row-right">
+                              {it.targetWeight ? `${it.targetWeight} lbs` : ""}
+                              {it.targetBodyFat ? ` · ${it.targetBodyFat}% BF` : ""}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
+
+                </div>
+              )}
+
+              {/* ── LOOKSMAXX ──────────────────────────────── */}
+              {!loading && tab === "Looksmaxx" && (
+                <div className="content-grid">
+
+                  <Card delay={0}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#06b6d4">Latest Daily Logs</PanelTitle>
+                      <div className="list-stack">
+                        {(looks?.latestDaily || []).map((d, idx) => (
+                          <div key={`${d.title}-${idx}`} className="list-row">
+                            <div>
+                              <span className="row-title">{d.title || "Untitled"}</span>
+                              <span className="row-sub">{d.date || "No date"}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {!looks?.latestDaily?.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem" }}>No daily entries found yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card delay={0.07}>
+                    <div className="panel-body">
+                      <PanelTitle accentColor="#8b5cf6">Goals &amp; Milestones</PanelTitle>
+                      <div className="list-stack">
+                        {(looks?.latestGoals || []).map((g, idx) => (
+                          <div key={`${g.title}-${idx}`} className="list-row">
+                            <div>
+                              <span className="row-title">{g.title || "Untitled goal"}</span>
+                              <span className="row-sub">{g.status || "No status"}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {!looks?.latestGoals?.length && (
+                          <p style={{ color: "var(--tx3)", fontSize: ".85rem" }}>No goals found yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                </div>
+              )}
+
+            </motion.div>
+          </AnimatePresence>
         </div>
-      )}
+      </div>
 
-      {!loading && tab === "Roadmap" && (
-        <div className="grid">
-          <Card className="panel">
-            <CardBody>
-              <h3>Roadmap phases</h3>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie data={roadmap?.byPhase || []} dataKey="value" nameKey="name" outerRadius={90} label />
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardBody>
-          </Card>
-
-          <Card className="panel">
-            <CardBody>
-              <h3>Next milestones</h3>
-              <div className="list">
-                {(roadmap?.nextMilestones || []).map((m, i) => (
-                  <div key={`${m.milestone}-${i}`} className="item">
-                    <div>
-                      <strong>{m.milestone}</strong>
-                      <p className="muted">{m.date || "No date"} · {m.phase || "No phase"}</p>
-                    </div>
-                  </div>
-                ))}
-                {!roadmap?.nextMilestones?.length && <p className="muted">No upcoming milestones yet.</p>}
-              </div>
-            </CardBody>
-          </Card>
-
-          <Card className="panel">
-            <CardBody>
-              <h3>Roadmap items</h3>
-              <div className="list">
-                {(roadmap?.items || []).slice(0, 8).map((it, i) => (
-                  <div key={`${it.milestone}-${i}`} className="item">
-                    <div>
-                      <strong>{it.milestone}</strong>
-                      <p className="muted">{it.phase || "Phase"} · {it.type || "Type"} · {it.date || "No date"}</p>
-                    </div>
-                    <div className="right">{it.targetWeight ? `${it.targetWeight} lbs` : ""}{it.targetBodyFat ? ` · ${it.targetBodyFat}% BF` : ""}</div>
-                  </div>
-                ))}
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      {!loading && tab === "Looksmaxx" && (
-        <div className="grid">
-          <Card className="panel">
-            <CardBody>
-              <h3>Latest Daily Logs</h3>
-              <div className="list">
-                {(looks?.latestDaily || []).map((d, idx) => (
-                  <div key={`${d.title}-${idx}`} className="item">
-                    <div>
-                      <strong>{d.title || "Untitled"}</strong>
-                      <p className="muted">{d.date || "No date"}</p>
-                    </div>
-                  </div>
-                ))}
-                {!looks?.latestDaily?.length && <p className="muted">No daily entries found yet.</p>}
-              </div>
-            </CardBody>
-          </Card>
-
-          <Card className="panel">
-            <CardBody>
-              <h3>Goals & Milestones</h3>
-              <div className="list">
-                {(looks?.latestGoals || []).map((g, idx) => (
-                  <div key={`${g.title}-${idx}`} className="item">
-                    <div>
-                      <strong>{g.title || "Untitled goal"}</strong>
-                      <p className="muted">{g.status || "No status"}</p>
-                    </div>
-                  </div>
-                ))}
-                {!looks?.latestGoals?.length && <p className="muted">No goals found yet.</p>}
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-
-      <div className="mobile-nav">
+      {/* ── Mobile bottom nav ───────────────────────────────── */}
+      <nav className="mobile-nav">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={tab === t ? "active" : ""}>
-            {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : t === "Roadmap" ? "🗺️" : "✨"}
-            <span>{t}</span>
+          <button
+            key={t}
+            className={`mob-btn${tab === t ? " active" : ""}`}
+            onClick={() => setTab(t)}
+          >
+            <span className="mob-icon">
+              {t === "Nutrition" ? "🍽️" : t === "Body Comp" ? "📊" : t === "Training" ? "🏋️" : t === "Roadmap" ? "🗺️" : "✨"}
+            </span>
+            <span>{t === "Body Comp" ? "Body" : t === "Looksmaxx" ? "Looks" : t}</span>
           </button>
         ))}
-      </div>
+      </nav>
+
     </div>
   );
 }
