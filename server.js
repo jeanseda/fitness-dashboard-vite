@@ -233,7 +233,7 @@ app.get("/api/roadmap", async (_req, res) => {
 });
 
 // Withings OAuth callback
-app.get("/callback", async (req, res) => {
+app.get("/withings/callback", async (req, res) => {
   const { code, error } = req.query;
   
   if (error) {
@@ -245,13 +245,14 @@ app.get("/callback", async (req, res) => {
   }
 
   try {
+    const redirectUri = process.env.WITHINGS_REDIRECT_URI || "http://localhost:8787/withings/callback";
     const form = new URLSearchParams({
       action: "requesttoken",
       grant_type: "authorization_code",
       client_id: process.env.WITHINGS_CLIENT_ID,
       client_secret: process.env.WITHINGS_CLIENT_SECRET,
       code: code,
-      redirect_uri: "https://fitness-dashboard-vite.onrender.com/callback",
+      redirect_uri: redirectUri,
     });
 
     const tokenRes = await fetch("https://wbsapi.withings.net/v2/oauth2", {
