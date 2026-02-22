@@ -44,6 +44,10 @@ type LooksPayload = {
 
 /* ── Constants ──────────────────────────────────────────────── */
 const TARGETS = { calories: 2800, protein: 170, caloriesMin: 2700, proteinMin: 160, bodyFatGoal: 20 };
+const BULK_START_DATE = "2026-01-07";
+const BULK_END_DATE = "2026-03-23";
+const BULK_START_WEIGHT = 161;
+const BULK_TARGET_WEIGHT = 170;
 const TABS    = ["Nutrition", "Body Comp", "Training", "Roadmap", "Looksmaxx"] as const;
 
 const MEAL_ORDER: Record<string, number> = { Breakfast: 0, Lunch: 1, Dinner: 2, Snack: 3, Shake: 4 };
@@ -234,6 +238,300 @@ function PanelTitle({ children, accentColor = "var(--indigo)" }: { children: Rea
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   COACH COMPONENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+function getCalStatus(cal: number): { icon: string; color: string } {
+  const pct = cal / TARGETS.calories;
+  if (pct >= 0.9 && pct <= 1.1) return { icon: "🟢", color: "var(--emerald)" };
+  if (pct >= 0.8) return { icon: "🟡", color: "var(--amber)" };
+  return { icon: "🔴", color: "var(--rose)" };
+}
+
+function getProStatus(pro: number): { icon: string; color: string } {
+  const pct = pro / TARGETS.protein;
+  if (pct >= 0.9) return { icon: "🟢", color: "var(--emerald)" };
+  if (pct >= 0.8) return { icon: "🟡", color: "var(--amber)" };
+  return { icon: "🔴", color: "var(--rose)" };
+}
+
+function getDayGrade(cal: number, pro: number): string {
+  const calPct = cal / TARGETS.calories;
+  const proPct = pro / TARGETS.protein;
+  const avg = (Math.min(calPct, 1.1) + Math.min(proPct, 1.1)) / 2;
+  if (avg >= 0.95) return "A";
+  if (avg >= 0.88) return "B+";
+  if (avg >= 0.80) return "B";
+  if (avg >= 0.70) return "C+";
+  if (avg >= 0.60) return "C";
+  if (avg >= 0.50) return "D";
+  return "F";
+}
+
+/* Daily Score Card */
+function DailyScoreCard({ cal, pro, trained }: { cal: number; pro: number; trained: boolean }) {
+  const grade = getDayGrade(cal, pro);
+  const calS = getCalStatus(cal);
+  const proS = getProStatus(pro);
+
+  return (
+    <motion.div
+      className="score-card"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: .35 }}
+    >
+      <div className="score-grade">{grade}</div>
+      <div className="score-details">
+        <span className="score-headline">{grade.startsWith("A") ? "Great" : grade.startsWith("B") ? "Solid" : grade.startsWith("C") ? "Okay" : "Needs Work"} Day</span>
+        <div className="score-metrics">
+          <span>{calS.icon} Calories {cal.toLocaleString()}/{TARGETS.calories.toLocaleString()}</span>
+          <span className="score-sep">|</span>
+          <span>{proS.icon} Protein {pro}g/{TARGETS.protein}g</span>
+          <span className="score-sep">|</span>
+          <span>Training {trained ? "✅" : "⬜"}</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* Plain English Insights */
+function CoachInsights({ cal, pro, mealsLogged }: { cal: number; pro: number; mealsLogged: number }) {
+  const hour = new Date().getHours();
+  const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const calRemaining = Math.max(0, TARGETS.calories - cal);
+  const proRemaining = Math.max(0, TARGETS.protein - pro);
+
+  const lines: string[] = [];
+
+  if (mealsLogged === 0) {
+    lines.push("Nothing logged yet today. Start tracking to stay on target! 📝");
+  } else {
+    if (calRemaining <= 0 && proRemaining <= 0) {
+      lines.push("You've hit both targets today. Nice work! 🎯");
+    } else {
+      if (calRemaining > 0) {
+        lines.push(`You need ${calRemaining.toLocaleString()} more calories${timeOfDay === "evening" ? " — time for a solid dinner" : ""}.`);
+      }
+      if (proRemaining > 0) {
+        const suggestions: string[] = [];
+        if (proRemaining > 30) suggestions.push("chicken breast (31g)");
+        if (proRemaining > 20) suggestions.push("protein shake (25g)");
+        suggestions.push("Greek yogurt (15g)");
+        lines.push(`You need ${proRemaining}g more protein. Try: ${suggestions.join(", ")}.`);
+      }
+    }
+    if (timeOfDay === "morning" && mealsLogged <= 1) {
+      lines.push("Still early — plenty of time to hit your targets today.");
+    }
+    if (timeOfDay === "evening" && cal < TARGETS.caloriesMin * 0.7) {
+      lines.push("⚠️ Running low on calories late in the day. Don't skip dinner.");
+    }
+  }
+
+  return (
+    <Card delay={0.04} className="coach-card">
+      <div className="panel-body">
+        <div className="coach-text">
+          {lines.map((l, i) => <p key={i}>{l}</p>)}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* Bulk Progress Tracker */
+function BulkProgress({ bodyComp }: { bodyComp: BodyComp[] }) {
+  const sorted = [...bodyComp].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = sorted[sorted.length - 1];
+  const currentWeight = latest?.weight ?? BULK_START_WEIGHT;
+  const totalGain = BULK_TARGET_WEIGHT - BULK_START_WEIGHT;
+  const gained = currentWeight - BULK_START_WEIGHT;
+  const pct = Math.min(Math.max(gained / totalGain, 0), 1);
+
+  const now = new Date();
+  const bulkEnd = new Date(BULK_END_DATE + "T00:00:00");
+  const bulkStart = new Date(BULK_START_DATE + "T00:00:00");
+  const daysRemaining = Math.max(0, Math.ceil((bulkEnd.getTime() - now.getTime()) / 86400000));
+  const totalDays = Math.ceil((bulkEnd.getTime() - bulkStart.getTime()) / 86400000);
+  const daysPassed = totalDays - daysRemaining;
+  const timePct = daysPassed / totalDays;
+
+  let pace = "On track";
+  let paceColor = "var(--emerald)";
+  if (pct > timePct + 0.1) { pace = "Ahead of schedule 🚀"; paceColor = "var(--cyan)"; }
+  else if (pct < timePct - 0.15) { pace = "Behind — push harder 💪"; paceColor = "var(--amber)"; }
+
+  // Linear regression for projected date
+  let projectedDate = BULK_END_DATE;
+  if (sorted.length >= 3 && gained > 0) {
+    const ratePerDay = gained / Math.max(daysPassed, 1);
+    const remaining = BULK_TARGET_WEIGHT - currentWeight;
+    const daysNeeded = remaining / ratePerDay;
+    const proj = new Date(now.getTime() + daysNeeded * 86400000);
+    projectedDate = proj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  return (
+    <Card delay={0.06}>
+      <div className="panel-body">
+        <PanelTitle accentColor="var(--cyan)">Bulk Progress</PanelTitle>
+        <div className="bulk-bar-wrap">
+          <div className="bulk-bar-labels">
+            <span>{BULK_START_WEIGHT} lbs</span>
+            <span style={{ color: "var(--tx1)", fontWeight: 700 }}>{currentWeight} lbs</span>
+            <span>{BULK_TARGET_WEIGHT} lbs</span>
+          </div>
+          <div className="bulk-bar-track">
+            <div className="bulk-bar-fill" style={{ width: `${pct * 100}%` }} />
+          </div>
+          <div className="bulk-meta">
+            <span>{Math.round(pct * 100)}% complete</span>
+            <span>{daysRemaining} days left</span>
+            <span style={{ color: paceColor }}>{pace}</span>
+          </div>
+          {sorted.length >= 3 && (
+            <div className="bulk-projected">
+              Projected to hit {BULK_TARGET_WEIGHT} lbs: <strong>{projectedDate}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* Weekly Trends */
+function WeeklyTrends({ dailyData }: { dailyData: { date: string; calories: number; protein: number; label: string }[] }) {
+  const last7 = dailyData.slice(-7);
+  if (last7.length === 0) return null;
+
+  const avgCal = Math.round(last7.reduce((s, d) => s + d.calories, 0) / last7.length);
+  const avgPro = Math.round(last7.reduce((s, d) => s + d.protein, 0) / last7.length);
+  const onTarget = last7.filter(d => d.calories >= TARGETS.caloriesMin && d.protein >= TARGETS.proteinMin).length;
+  const compliance = Math.round((onTarget / last7.length) * 100);
+
+  // Pattern detection
+  const dayNames = last7.map(d => {
+    const dow = new Date(d.date + "T12:00:00").getDay();
+    return { ...d, isWeekend: dow === 0 || dow === 6 };
+  });
+  const weekendPro = dayNames.filter(d => d.isWeekend);
+  const weekdayPro = dayNames.filter(d => !d.isWeekend);
+  const avgWeekendPro = weekendPro.length ? weekendPro.reduce((s, d) => s + d.protein, 0) / weekendPro.length : 0;
+  const avgWeekdayPro = weekdayPro.length ? weekdayPro.reduce((s, d) => s + d.protein, 0) / weekdayPro.length : 0;
+
+  let pattern = compliance >= 85 ? "Consistent week! 🔥" : compliance >= 60 ? "Decent consistency." : "Inconsistent — focus on daily tracking.";
+  if (weekendPro.length > 0 && avgWeekendPro < avgWeekdayPro * 0.85) {
+    pattern = "Protein tends to dip on weekends. Plan ahead! 📋";
+  }
+
+  return (
+    <Card delay={0.08}>
+      <div className="panel-body">
+        <PanelTitle accentColor="var(--violet)">Last 7 Days</PanelTitle>
+        <div className="weekly-dots">
+          {last7.map((d, i) => {
+            const hit = d.calories >= TARGETS.caloriesMin && d.protein >= TARGETS.proteinMin;
+            const close = !hit && d.calories >= TARGETS.caloriesMin * 0.85 && d.protein >= TARGETS.proteinMin * 0.85;
+            const dayLabel = new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+            return (
+              <div key={i} className="weekly-dot-col">
+                <div className={`weekly-dot ${hit ? "dot-green" : close ? "dot-yellow" : "dot-red"}`} />
+                <span className="weekly-dot-label">{dayLabel}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="weekly-stats">
+          <div><span className="weekly-stat-label">Avg Calories</span><span className="weekly-stat-value">{avgCal.toLocaleString()}</span></div>
+          <div><span className="weekly-stat-label">Avg Protein</span><span className="weekly-stat-value">{avgPro}g</span></div>
+          <div><span className="weekly-stat-label">Compliance</span><span className="weekly-stat-value">{compliance}%</span></div>
+        </div>
+        <p className="weekly-pattern">{pattern}</p>
+      </div>
+    </Card>
+  );
+}
+
+/* Body Composition Story */
+function BodyCompStory({ bodyComp }: { bodyComp: BodyComp[] }) {
+  const sorted = [...bodyComp].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) return null;
+
+  const first = sorted[0];
+  const latest = sorted[sorted.length - 1];
+  const weeks = Math.max(1, Math.round((new Date(latest.date).getTime() - new Date(first.date).getTime()) / (7 * 86400000)));
+  const weightChange = Number((latest.weight - first.weight).toFixed(1));
+  const bfChange = Number((latest.bodyFat - first.bodyFat).toFixed(1));
+  const muscleChange = Number((latest.muscleMass - first.muscleMass).toFixed(1));
+
+  const arrow = (v: number, invert = false) => {
+    const good = invert ? v < 0 : v > 0;
+    return v > 0 ? (good ? "↑" : "↑") : v < 0 ? (good ? "↓" : "↓") : "→";
+  };
+  const arrowColor = (v: number, invert = false) => {
+    const good = invert ? v <= 0 : v >= 0;
+    return good ? "var(--emerald)" : "var(--amber)";
+  };
+
+  return (
+    <Card delay={0.10}>
+      <div className="panel-body">
+        <PanelTitle accentColor="var(--blue)">Body Comp Story</PanelTitle>
+        <div className="story-lines">
+          <p>Over the last <strong>{weeks} week{weeks > 1 ? "s" : ""}</strong>:</p>
+          <div className="story-stat">
+            <span style={{ color: arrowColor(weightChange) }}>{arrow(weightChange)} {Math.abs(weightChange)} lbs</span>
+            <span className="story-label">Weight {weightChange >= 0 ? "gained" : "lost"}</span>
+          </div>
+          {latest.bodyFat > 0 && (
+            <div className="story-stat">
+              <span style={{ color: arrowColor(bfChange, true) }}>{arrow(bfChange, true)} {Math.abs(bfChange)}%</span>
+              <span className="story-label">Body fat {bfChange >= 0 ? "increase" : "decrease"}</span>
+            </div>
+          )}
+          {latest.muscleMass > 0 && (
+            <div className="story-stat">
+              <span style={{ color: arrowColor(muscleChange) }}>{arrow(muscleChange)} {Math.abs(muscleChange)} lbs</span>
+              <span className="story-label">Muscle mass {muscleChange >= 0 ? "gained" : "lost"}</span>
+            </div>
+          )}
+          {muscleChange > 0 && weightChange > 0 && (
+            <p className="story-ratio">
+              ~{Math.round((muscleChange / weightChange) * 100)}% of weight gain was lean mass 💪
+            </p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* Last Synced Indicator */
+function LastSynced({ updatedAt, lastMealDate }: { updatedAt?: string; lastMealDate?: string }) {
+  const now = Date.now();
+  const synced = updatedAt ? new Date(updatedAt).getTime() : 0;
+  const mealTs = lastMealDate ? new Date(lastMealDate + "T23:59:59").getTime() : 0;
+  const staleData = synced > 0 && (now - synced) > 24 * 3600000;
+  const staleMeals = mealTs > 0 && (now - mealTs) > 24 * 3600000;
+
+  return (
+    <div className="last-synced">
+      <span className={`synced-item${staleData ? " stale" : ""}`}>
+        {staleData ? "⚠️" : "✓"} Data synced {updatedAt ? new Date(updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never"}
+      </span>
+      {lastMealDate && (
+        <span className={`synced-item${staleMeals ? " stale" : ""}`}>
+          {staleMeals ? "⚠️" : "✓"} Meals logged {new Date(lastMealDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════════════ */
 export default function App() {
@@ -317,6 +615,15 @@ export default function App() {
   const calHits     = dailyData.filter((d) => d.calories >= TARGETS.caloriesMin).length;
   const proteinHits = dailyData.filter((d) => d.protein  >= TARGETS.proteinMin).length;
   const last7Cal    = dailyData.slice(-7);
+
+  const lastMealDate = useMemo(() => {
+    const dates = meals.map(m => m.date).filter(Boolean).sort();
+    return dates[dates.length - 1] || undefined;
+  }, [meals]);
+
+  const todayTrained = useMemo(() => {
+    return training.some(t => t.date === today);
+  }, [training, today]);
 
   const latestBody = bodyCompSorted[bodyCompSorted.length - 1];
   const prevBody   = bodyCompSorted[bodyCompSorted.length - 2];
@@ -540,7 +847,19 @@ export default function App() {
 
               {/* ── NUTRITION ─────────────────────────────── */}
               {!loading && tab === "Nutrition" && (
-                <div className="content-grid">
+                <div className="content-grid nutrition-grid">
+
+                  {/* Daily Score Card - full width */}
+                  <div className="full-width">
+                    <DailyScoreCard cal={todayTotals.cal} pro={todayTotals.pro} trained={todayTrained} />
+                    <CoachInsights cal={todayTotals.cal} pro={todayTotals.pro} mealsLogged={todayMeals.length} />
+                    <LastSynced updatedAt={data?.updatedAt} lastMealDate={lastMealDate} />
+                  </div>
+
+                  {/* Bulk Progress & Weekly Trends */}
+                  <BulkProgress bodyComp={bodyComp} />
+                  <WeeklyTrends dailyData={dailyData} />
+                  <BodyCompStory bodyComp={bodyComp} />
 
                   {/* Daily Goals radial rings */}
                   <Card delay={0}>
