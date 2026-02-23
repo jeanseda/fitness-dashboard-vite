@@ -111,6 +111,22 @@ app.get("/api/dashboard", async (_req, res) => {
   }
 });
 
+app.get("/api/commentary", (_req, res) => {
+  const filePath = path.join(__dirname, "data", "commentary.json");
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "commentary_cache_missing" });
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return res.json(parsed);
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : "commentary_cache_invalid",
+    });
+  }
+});
+
 app.get("/api/portfolio", (_req, res) => {
   const fallback = {
     updatedAt: new Date().toISOString(),

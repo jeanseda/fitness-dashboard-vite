@@ -39,13 +39,26 @@ function getMeasureValue(measures, type) {
   return m.value * Math.pow(10, m.unit);
 }
 
+function getLatestRefreshToken() {
+  // Prefer the saved token file (auto-rotated on each sync) over .env (static)
+  try {
+    const saved = JSON.parse(fs.readFileSync(tokenStatePath, "utf8"));
+    if (saved.refresh_token) {
+      console.log("Using refresh token from saved state file");
+      return saved.refresh_token;
+    }
+  } catch {}
+  console.log("Falling back to .env refresh token");
+  return process.env.WITHINGS_REFRESH_TOKEN;
+}
+
 async function refreshWithingsToken() {
   const form = new URLSearchParams({
     action: "requesttoken",
     grant_type: "refresh_token",
     client_id: process.env.WITHINGS_CLIENT_ID,
     client_secret: process.env.WITHINGS_CLIENT_SECRET,
-    refresh_token: process.env.WITHINGS_REFRESH_TOKEN,
+    refresh_token: getLatestRefreshToken(),
   });
 
   const res = await fetch("https://wbsapi.withings.net/v2/oauth2", {

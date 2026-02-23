@@ -26,6 +26,20 @@ type Meal        = { food: string; date: string; meal: string; calories: number;
 type BodyComp    = { date: string; weight: number; bodyFat: number; muscleMass: number };
 type TrainingEntry = { exercise: string; date: string; weight: number; reps: string | number; workoutType?: string };
 type DashboardPayload = { meals: Meal[]; bodyComp: BodyComp[]; training: TrainingEntry[]; updatedAt: string };
+type Insight = { text: string; type: "info" | "warning" | "success" | "alert" };
+type DailyCommentary = { greeting: string; focus: string; tip: string };
+type WeeklyCommentary = { summary: string; mvp_meal: string; concern: string };
+type BodyCompCommentary = { trend: string; projection: string; actionable: string };
+type TrainingCommentary = { highlight: string; gap: string; suggestion: string };
+type CommentaryPayload = {
+  generatedAt: string;
+  daily: DailyCommentary;
+  weekly: WeeklyCommentary;
+  bodyComp: BodyCompCommentary;
+  training: TrainingCommentary;
+  ropitiQuote: string;
+};
+type DailyMacro = { date: string; calories: number; protein: number };
 type RoadmapPayload = {
   updatedAt: string;
   items: { milestone: string; phase?: string; date?: string; type?: string; notes?: string; targetWeight?: number; targetBodyFat?: number; targetMuscle?: number }[];
@@ -296,45 +310,230 @@ function DailyScoreCard({ cal, pro, trained }: { cal: number; pro: number; train
   );
 }
 
-/* Plain English Insights */
-function CoachInsights({ cal, pro, mealsLogged }: { cal: number; pro: number; mealsLogged: number }) {
-  const hour = new Date().getHours();
-  const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-  const calRemaining = Math.max(0, TARGETS.calories - cal);
-  const proRemaining = Math.max(0, TARGETS.protein - pro);
+function getDailyMacros(meals: Meal[]): DailyMacro[] {
+  const byDate: Record<string, DailyMacro> = {};
+  meals.forEach((m) => {
+    if (!m.date) return;
+    if (!byDate[m.date]) byDate[m.date] = { date: m.date, calories: 0, protein: 0 };
+    byDate[m.date].calories += m.calories || 0;
+    byDate[m.date].protein += m.protein || 0;
+  });
+  return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+}
 
-  const lines: string[] = [];
+function daySeed() {
+  const now = new Date();
+  return Number(`${now.getFullYear()}${now.getMonth() + 1}${now.getDate()}`);
+}
 
-  if (mealsLogged === 0) {
-    lines.push("Nothing logged yet today. Start tracking to stay on target! 📝");
-  } else {
-    if (calRemaining <= 0 && proRemaining <= 0) {
-      lines.push("You've hit both targets today. Nice work! 🎯");
-    } else {
-      if (calRemaining > 0) {
-        lines.push(`You need ${calRemaining.toLocaleString()} more calories${timeOfDay === "evening" ? " — time for a solid dinner" : ""}.`);
-      }
-      if (proRemaining > 0) {
-        const suggestions: string[] = [];
-        if (proRemaining > 30) suggestions.push("chicken breast (31g)");
-        if (proRemaining > 20) suggestions.push("protein shake (25g)");
-        suggestions.push("Greek yogurt (15g)");
-        lines.push(`You need ${proRemaining}g more protein. Try: ${suggestions.join(", ")}.`);
-      }
-    }
-    if (timeOfDay === "morning" && mealsLogged <= 1) {
-      lines.push("Still early — plenty of time to hit your targets today.");
-    }
-    if (timeOfDay === "evening" && cal < TARGETS.caloriesMin * 0.7) {
-      lines.push("⚠️ Running low on calories late in the day. Don't skip dinner.");
+function rotateInsights(insights: Insight[], count = 3): Insight[] {
+  if (!insights.length) return [];
+  const shift = daySeed() % insights.length;
+  const rotated = [...insights.slice(shift), ...insights.slice(0, shift)];
+  return rotated.slice(0, count);
+}
+
+function generateNutritionInsights(meals: Meal[], bodyComp: BodyComp[]): Insight[] {
+  const daily = getDailyMacros(meals);
+  if (!daily.length) return [{ text: "No meals logged yet. Your macros can’t improve if they don’t exist, chief.", type: "info" }];
+  const latest = daily[daily.length - 1];
+  const grade = getDayGrade(latest.calories, latest.protein);
+  const gradeLine: Record<string, string> = {
+    A: "Chef's kiss day. Macro execution looked expensive.",
+    "B+": "Strong day. A tiny protein bump and this is elite.",
+    B: "Good base. Tighten one meal and this becomes clean.",
+    "C+": "Mid day. Decent effort, weak finish.",
+    C: "Survived, not thrived. Protein is asking for help.",
+    D: "Rough day. We’re one snack away from a comeback.",
+    F: "Did you even eat today?"
+  };
+
+  let proteinDrought = 0;
+  for (let i = daily.length - 1; i >= 0; i -= 1) {
+    if (daily[i].protein < TARGETS.protein) proteinDrought += 1;
+    else break;
+  }
+
+  let proteinStreak = 0;
+  for (let i = daily.length - 1; i >= 0; i -= 1) {
+    if (daily[i].protein >= TARGETS.protein) proteinStreak += 1;
+    else break;
+  }
+
+  const totalMeals = meals.length || 1;
+  const lateCal = meals
+    .filter((m) => ["Dinner", "Snack", "Shake"].includes(m.meal))
+    .reduce((sum, m) => sum + (m.calories || 0), 0);
+  const totalCal = meals.reduce((sum, m) => sum + (m.calories || 0), 0) || 1;
+  const latePct = Math.round((lateCal / totalCal) * 100);
+
+  const restaurantMeals = meals.filter((m) => (m.source || "").toLowerCase() === "restaurant").length;
+  const restaurantPct = Math.round((restaurantMeals / totalMeals) * 100);
+
+  const list: Insight[] = [
+    { text: `Daily grade: ${grade}. ${gradeLine[grade] || "Keep stacking better days."}`, type: grade.startsWith("A") || grade.startsWith("B") ? "success" : "warning" },
+  ];
+
+  if (proteinDrought >= 3) {
+    list.push({ text: `Protein drought: ${proteinDrought} days without hitting target. Your muscles are filing a complaint.`, type: "alert" });
+  } else if (proteinStreak >= 2) {
+    list.push({ text: `🔥 ${proteinStreak}-day protein target streak. Keep feeding the gains.`, type: "success" });
+  }
+
+  if (latePct >= 70) {
+    list.push({ text: `${latePct}% of your calories are from later meals. You’re basically a nocturnal eater.`, type: "warning" });
+  }
+
+  if (restaurantPct >= 60) {
+    list.push({ text: `Restaurant meals are ${restaurantPct}% of your logs. Your wallet and macros are both sweating.`, type: "warning" });
+  }
+
+  if (latest.protein < TARGETS.protein) {
+    const need = TARGETS.protein - latest.protein;
+    list.push({ text: `You’re ${need}g short on protein today. One shake + lean meal closes it.`, type: "info" });
+  }
+
+  const bodySorted = [...bodyComp].sort((a, b) => a.date.localeCompare(b.date));
+  if (bodySorted.length >= 2) {
+    const latestBody = bodySorted[bodySorted.length - 1];
+    const prevBody = bodySorted[bodySorted.length - 2];
+    const weightDelta = Number((latestBody.weight - prevBody.weight).toFixed(1));
+    if (weightDelta <= 0 && proteinDrought >= 2) {
+      list.push({ text: `Scale moved ${weightDelta} lbs while protein stayed low. Gains need building blocks, not vibes.`, type: "warning" });
     }
   }
 
+  return list;
+}
+
+function generateBodyCompInsights(bodyComp: BodyComp[]): Insight[] {
+  const sorted = [...bodyComp].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) return [{ text: "Need more body comp entries before I roast your trend line.", type: "info" }];
+  const latest = sorted[sorted.length - 1];
+  const weekStart = sorted.find((x) => (new Date(latest.date).getTime() - new Date(x.date).getTime()) >= 6 * 86400000) ?? sorted[Math.max(0, sorted.length - 2)];
+  const weightDelta = Number((latest.weight - weekStart.weight).toFixed(1));
+  const muscleDelta = Number((latest.muscleMass - weekStart.muscleMass).toFixed(1));
+  const bfDelta = Number((latest.bodyFat - weekStart.bodyFat).toFixed(1));
+
+  const ratio = weightDelta > 0 ? Math.round((muscleDelta / weightDelta) * 100) : 0;
+  const today = new Date();
+  const daysPassed = Math.max(1, Math.round((today.getTime() - new Date(BULK_START_DATE).getTime()) / 86400000));
+  const gained = latest.weight - BULK_START_WEIGHT;
+  const rate = gained / daysPassed;
+  const remaining = BULK_TARGET_WEIGHT - latest.weight;
+  const projectionDate = rate > 0 ? new Date(today.getTime() + (remaining / rate) * 86400000) : null;
+
+  const list: Insight[] = [];
+  if (weightDelta > 0) {
+    list.push({
+      text: `Weight up ${weightDelta} lbs this week, muscle up ${muscleDelta} lbs. ${Math.max(0, weightDelta - muscleDelta).toFixed(1)} lbs wasn’t lean gain, bro.`,
+      type: muscleDelta >= weightDelta * 0.5 ? "info" : "warning",
+    });
+  } else {
+    list.push({ text: `Scale is down ${Math.abs(weightDelta)} lbs this week. Fine for a cut, sus for a bulk.`, type: "warning" });
+  }
+
+  if (projectionDate) {
+    list.push({
+      text: `At this pace, you hit ${BULK_TARGET_WEIGHT} lbs by ${projectionDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`,
+      type: "success",
+    });
+  }
+
+  if (latest.bodyFat > 0 && weekStart.bodyFat > 0) {
+    list.push({
+      text: `Body fat moved ${weekStart.bodyFat.toFixed(1)}% → ${latest.bodyFat.toFixed(1)}% (${bfDelta >= 0 ? "+" : ""}${bfDelta}). Normal during bulk, just keep eyes on trend.`,
+      type: bfDelta > 0.8 ? "warning" : "info",
+    });
+  }
+
+  if (weightDelta > 0) {
+    list.push({
+      text: `Muscle-to-weight gain ratio: ${Math.max(0, ratio)}%. ${ratio >= 60 ? "Solid partitioning." : ratio >= 40 ? "Decent, but room to clean up." : "Too much fluff, tighten nutrition."}`,
+      type: ratio >= 60 ? "success" : ratio >= 40 ? "info" : "alert",
+    });
+  }
+
+  return list;
+}
+
+function parseRepsToNumber(reps: string | number): number {
+  if (typeof reps === "number") return reps;
+  const match = String(reps).match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function generateTrainingInsights(training: TrainingEntry[]): Insight[] {
+  if (!training.length) return [{ text: "No training logs yet. The barbell doesn’t lift itself.", type: "warning" }];
+  const sorted = [...training].sort((a, b) => a.date.localeCompare(b.date));
+  const byExercise: Record<string, TrainingEntry[]> = {};
+  sorted.forEach((t) => { (byExercise[t.exercise] ??= []).push(t); });
+
+  const list: Insight[] = [];
+  for (const [exercise, entries] of Object.entries(byExercise)) {
+    if (entries.length < 2) continue;
+    const latest = entries[entries.length - 1];
+    const priorMax = Math.max(...entries.slice(0, -1).map((x) => x.weight));
+    if (latest.weight > priorMax) {
+      list.push({ text: `New PR! ${exercise} ${latest.weight} lbs. Keep cooking.`, type: "success" });
+      break;
+    }
+  }
+
+  for (const [exercise, entries] of Object.entries(byExercise)) {
+    const recent = entries.slice(-3);
+    if (recent.length < 3) continue;
+    const sameWeight = recent.every((x) => x.weight === recent[0].weight);
+    if (sameWeight) {
+      list.push({ text: `${exercise} has been parked at ${recent[0].weight} lbs for 3 sessions. Deload or switch rep scheme time.`, type: "warning" });
+      break;
+    }
+  }
+
+  const today = new Date();
+  const weekAgo = new Date(today.getTime() - 6 * 86400000).toISOString().slice(0, 10);
+  const weeklyDays = new Set(sorted.filter((t) => t.date >= weekAgo).map((t) => t.date)).size;
+  if (weeklyDays < 4) {
+    list.push({ text: `You trained ${weeklyDays}x this week. Program says 4x. The gym misses you.`, type: weeklyDays <= 1 ? "alert" : "warning" });
+  } else {
+    list.push({ text: `Training consistency is ${weeklyDays}x this week. That’s momentum.`, type: "success" });
+  }
+
+  const latest7 = sorted.slice(-7);
+  const prev7 = sorted.slice(-14, -7);
+  const vol = (rows: TrainingEntry[]) => rows.reduce((sum, r) => sum + (r.weight || 0) * parseRepsToNumber(r.reps), 0);
+  const volNow = vol(latest7);
+  const volPrev = vol(prev7);
+  if (volPrev > 0) {
+    const delta = Math.round(((volNow - volPrev) / volPrev) * 100);
+    list.push({ text: `Volume trend: ${delta >= 0 ? "+" : ""}${delta}% vs prior block. ${delta >= 8 ? "Productive overload." : delta <= -8 ? "Volume dropped, watch recovery/training effort." : "Holding steady."}`, type: delta >= 8 ? "success" : delta <= -8 ? "warning" : "info" });
+  }
+
+  return list;
+}
+
+function InsightCard({ insight }: { insight: Insight }) {
+  return (
+    <motion.div
+      className={`insight-card insight-${insight.type}`}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28 }}
+    >
+      <span className="insight-icon">🦞</span>
+      <p>{insight.text}</p>
+    </motion.div>
+  );
+}
+
+function CoachInsights({ insights }: { insights: Insight[] }) {
+  const top = rotateInsights(insights, 3);
   return (
     <Card delay={0.04} className="coach-card">
       <div className="panel-body">
+        <PanelTitle accentColor="#8b5cf6">Coach Insights</PanelTitle>
         <div className="coach-text">
-          {lines.map((l, i) => <p key={i}>{l}</p>)}
+          {top.map((insight, i) => <InsightCard key={`${insight.type}-${i}`} insight={insight} />)}
         </div>
       </div>
     </Card>
@@ -531,6 +730,40 @@ function LastSynced({ updatedAt, lastMealDate }: { updatedAt?: string; lastMealD
   );
 }
 
+function CommentaryBanner({ commentary }: { commentary: CommentaryPayload | null }) {
+  if (!commentary) return null;
+  return (
+    <motion.div
+      className="commentary-banner"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.34 }}
+    >
+      <div className="commentary-badge">🦞 Max Says</div>
+      <div className="commentary-main">
+        <p className="commentary-greeting">{commentary.daily.greeting}</p>
+        <p className="commentary-focus">{commentary.daily.focus}</p>
+      </div>
+    </motion.div>
+  );
+}
+
+function MaxSaysCard({ lines }: { lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <Card delay={0.03} className="max-card">
+      <div className="panel-body">
+        <PanelTitle accentColor="#6366f1">🦞 Max Says</PanelTitle>
+        <div className="max-lines">
+          {lines.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════════════ */
@@ -540,6 +773,7 @@ export default function App() {
   const [data,        setData]        = useState<DashboardPayload | null>(null);
   const [roadmap,     setRoadmap]     = useState<RoadmapPayload   | null>(null);
   const [looks,       setLooks]       = useState<LooksPayload     | null>(null);
+  const [commentary,  setCommentary]  = useState<CommentaryPayload | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
@@ -548,17 +782,22 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [res, roadmapRes, looksRes] = await Promise.all([
+      const [res, roadmapRes, looksRes, commentaryRes] = await Promise.all([
         fetch("/api/dashboard",  { cache: "no-store" }),
         fetch("/api/roadmap",    { cache: "no-store" }),
         fetch("/api/looksmaxx",  { cache: "no-store" }),
+        fetch("/api/commentary", { cache: "no-store" }),
       ]);
       const json       = (await res.json())       as DashboardPayload & { error?: string };
       const roadmapJson= (await roadmapRes.json())as RoadmapPayload   & { error?: string };
       const looksJson  = (await looksRes.json())  as LooksPayload     & { error?: string };
+      const commentaryJson = commentaryRes.ok
+        ? (await commentaryRes.json()) as CommentaryPayload
+        : null;
       if (!res.ok) throw new Error(json.error ?? "Failed to fetch dashboard");
       if (roadmapRes.ok) setRoadmap(roadmapJson);
       if (looksRes.ok)   setLooks(looksJson);
+      setCommentary(commentaryJson);
       setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
@@ -583,19 +822,10 @@ export default function App() {
   );
 
   const dailyData = useMemo(() => {
-    const byDate: Record<string, { date: string; calories: number; protein: number; label: string }> = {};
-    meals.forEach((m) => {
-      if (!m.date) return;
-      if (!byDate[m.date]) {
-        byDate[m.date] = {
-          date: m.date, calories: 0, protein: 0,
-          label: new Date(`${m.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        };
-      }
-      byDate[m.date].calories += m.calories || 0;
-      byDate[m.date].protein  += m.protein  || 0;
-    });
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    return getDailyMacros(meals).map((d) => ({
+      ...d,
+      label: new Date(`${d.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    }));
   }, [meals]);
 
   const bodyCompSorted = useMemo(
@@ -651,6 +881,29 @@ export default function App() {
   const latestExerciseEntries = useMemo(
     () => [...training].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6),
     [training],
+  );
+
+  const nutritionInsights = useMemo(() => generateNutritionInsights(meals, bodyComp), [meals, bodyComp]);
+  const bodyCompInsights = useMemo(() => generateBodyCompInsights(bodyComp), [bodyComp]);
+  const trainingInsights = useMemo(() => generateTrainingInsights(training), [training]);
+
+  const nutritionMaxLines = useMemo(
+    () => commentary
+      ? [commentary.weekly.summary, commentary.weekly.mvp_meal, commentary.weekly.concern]
+      : rotateInsights(nutritionInsights, 2).map((i) => i.text),
+    [commentary, nutritionInsights],
+  );
+  const bodyCompMaxLines = useMemo(
+    () => commentary
+      ? [commentary.bodyComp.trend, commentary.bodyComp.projection, commentary.bodyComp.actionable]
+      : rotateInsights(bodyCompInsights, 2).map((i) => i.text),
+    [commentary, bodyCompInsights],
+  );
+  const trainingMaxLines = useMemo(
+    () => commentary
+      ? [commentary.training.highlight, commentary.training.gap, commentary.training.suggestion]
+      : rotateInsights(trainingInsights, 2).map((i) => i.text),
+    [commentary, trainingInsights],
   );
 
   /* ── KPI cards data ───────────────────────────────────────── */
@@ -776,6 +1029,8 @@ export default function App() {
         {/* Scroll area */}
         <div className="scroll-area">
 
+          <CommentaryBanner commentary={commentary} />
+
           {/* Error bar */}
           {error && (
             <div className="error-bar">
@@ -852,7 +1107,8 @@ export default function App() {
                   {/* Daily Score Card - full width */}
                   <div className="full-width">
                     <DailyScoreCard cal={todayTotals.cal} pro={todayTotals.pro} trained={todayTrained} />
-                    <CoachInsights cal={todayTotals.cal} pro={todayTotals.pro} mealsLogged={todayMeals.length} />
+                    <CoachInsights insights={nutritionInsights} />
+                    <MaxSaysCard lines={nutritionMaxLines} />
                     <LastSynced updatedAt={data?.updatedAt} lastMealDate={lastMealDate} />
                   </div>
 
@@ -989,6 +1245,9 @@ export default function App() {
               {!loading && tab === "Body Comp" && (
                 <div className="content-grid">
 
+                  <MaxSaysCard lines={bodyCompMaxLines} />
+                  <CoachInsights insights={bodyCompInsights} />
+
                   <Card delay={0}>
                     <div className="panel-body">
                       <PanelTitle accentColor="#60a5fa">Weight &amp; Muscle Trend</PanelTitle>
@@ -1057,6 +1316,9 @@ export default function App() {
               {/* ── TRAINING ──────────────────────────────── */}
               {!loading && tab === "Training" && (
                 <div className="content-grid">
+
+                  <MaxSaysCard lines={trainingMaxLines} />
+                  <CoachInsights insights={trainingInsights} />
 
                   <Card delay={0}>
                     <div className="panel-body">

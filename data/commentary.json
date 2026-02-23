@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-02-23T01:19:32.470Z",
+  "daily": {
+    "greeting": "GM! Log breakfast and we’ll build momentum.",
+    "focus": "Today's priority: hit protein early so dinner isn't a panic.",
+    "tip": "Add one shake between meals to make protein easier."
+  },
+  "weekly": {
+    "summary": "No fresh data yet. Track at least 4 days to unlock real insights.",
+    "mvp_meal": "No MVP meal yet.",
+    "concern": "Tracking consistency is too low to detect useful patterns."
+  },
+  "bodyComp": {
+    "trend": "Not enough body comp entries yet.",
+    "projection": "Need at least 2 weigh-ins to project timeline.",
+    "actionable": "Log weight and body fat 2-3x/week for cleaner trend detection."
+  },
+  "training": {
+    "highlight": "No PR signal yet.",
+    "gap": "Need more sessions logged this week.",
+    "suggestion": "Start with your main compound lifts and track every set."
+  },
+  "ropitiQuote": "Small daily wins beat heroic weekends."
+}
